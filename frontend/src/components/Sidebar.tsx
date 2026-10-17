@@ -27,9 +27,10 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: 'Overview', path: '/', icon: LayoutDashboard },
   { name: 'Resumes', path: '/resumes', icon: FileText, badge: 'Phase 2A' },
-  { name: 'Find Jobs', path: '/jobs', icon: Briefcase, badge: 'Phase 2B' },
-  { name: 'Applications', path: '/applications', icon: Kanban, badge: 'Phase 3' },
-  { name: 'Analytics', path: '/analytics', icon: BarChart3, badge: 'Phase 4' },
+  { name: 'Find Jobs', path: '/jobs', icon: Briefcase, badge: 'Phase 3A' },
+  { name: 'Job Matching', path: '/match', icon: GitFork, badge: 'Phase 3B' },
+  { name: 'Applications', path: '/applications', icon: Kanban, badge: 'Phase 4' },
+  { name: 'Analytics', path: '/analytics', icon: BarChart3, badge: 'Phase 5' },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {

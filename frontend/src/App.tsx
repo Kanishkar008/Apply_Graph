@@ -4,6 +4,7 @@ import { DashboardLayout } from './layouts/DashboardLayout';
 import { OverviewPage } from './pages/OverviewPage';
 import { ResumesPage } from './pages/ResumesPage';
 import { JobsPage } from './pages/JobsPage';
+import { MatchWorkspacePage } from './pages/MatchWorkspacePage';
 import { ApplicationsPlaceholder } from './pages/ApplicationsPlaceholder';
 import { AnalyticsPlaceholder } from './pages/AnalyticsPlaceholder';
 
@@ -15,6 +16,7 @@ export const App: React.FC = () => {
           <Route index element={<OverviewPage />} />
           <Route path="resumes" element={<ResumesPage />} />
           <Route path="jobs" element={<JobsPage />} />
+          <Route path="match" element={<MatchWorkspacePage />} />
           <Route path="applications" element={<ApplicationsPlaceholder />} />
           <Route path="analytics" element={<AnalyticsPlaceholder />} />
           <Route path="*" element={<Navigate to="/" replace />} />
