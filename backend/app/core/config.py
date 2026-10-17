@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
 
+    # Upload configuration
+    MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB
+
     # CORS configuration
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
