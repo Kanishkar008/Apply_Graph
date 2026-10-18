@@ -35,6 +35,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-applygraph_db}
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-applygraph_db}
       BACKEND_CORS_ORIGINS: '["http://localhost:5173", "http://127.0.0.1:5173"]'
+      MODELS_CACHE_DIR: /app/models_cache
+    volumes:
+      - ./models_cache:/app/models_cache:ro
     ports:
       - "8000:8000"
     depends_on:
