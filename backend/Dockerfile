@@ -22,7 +22,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Provision pinned all-MiniLM-L6-v2 snapshot during image build (not at startup or inference)
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='sentence-transformers/all-MiniLM-L6-v2', revision='1110a243fdf4706b3f48f1d95db1a4f5529b4d41', cache_dir='/app/models_cache')"
+
 COPY . .
+
+# Enforce strict offline execution for runtime
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    MODELS_CACHE_DIR=/app/models_cache
 
 EXPOSE 8000
 
