@@ -65,3 +65,7 @@ Thumbs.db
 # Database / Docker
 postgres_data/
 *.sqlite3
+
+# Models & Machine Learning Caches
+/models_cache/
+models_cache/

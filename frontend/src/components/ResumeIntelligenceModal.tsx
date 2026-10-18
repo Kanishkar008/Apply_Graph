@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Sparkles,
@@ -14,7 +14,6 @@ import {
   Layers,
   Info,
   Plus,
-  Trash2,
   UserCheck,
   FileSearch,
 } from 'lucide-react';
@@ -24,6 +23,7 @@ import {
   ParsedSkill,
 } from '../types/resume';
 import { updateParsedResume, parseResume } from '../services/resumeService';
+import { Button, Badge, ConfirmDialog } from './ui';
 
 interface Props {
   profile: ParsedResumeResponse;
@@ -42,6 +42,7 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isReparsing, setIsReparsing] = useState<boolean>(false);
+  const [showReparseConfirm, setShowReparseConfirm] = useState<boolean>(false);
   const [activeEvidence, setActiveEvidence] = useState<{ label: string; text: string } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -56,7 +57,7 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
   const [newSkillCategory, setNewSkillCategory] = useState('tool');
 
   // Escape key accessibility
-  React.useEffect(() => {
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -72,7 +73,7 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
     setSuccessMsg(null);
     try {
       const updated = await updateParsedResume(profile.resume_id, formData);
-      setSuccessMsg('Corrections saved successfully. Marked as User-Verified.');
+      setSuccessMsg('Corrections saved successfully. Profile marked as User-Verified.');
       setIsEditing(false);
       onProfileUpdated(updated);
     } catch (err: unknown) {
@@ -82,23 +83,14 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
     }
   };
 
-  const handleReparse = async (forceOverwrite: boolean = false) => {
-    if (profile.is_user_corrected && !forceOverwrite) {
-      if (
-        !window.confirm(
-          'This profile has manual user corrections. Re-parsing will overwrite your manual edits with fresh extraction. Do you want to proceed?'
-        )
-      ) {
-        return;
-      }
-    }
-
+  const executeReparse = async () => {
+    setShowReparseConfirm(false);
     setIsReparsing(true);
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
       const refreshed = await parseResume(profile.resume_id, true, true);
-      setSuccessMsg('Resume re-parsed successfully.');
+      setSuccessMsg('Resume re-parsed successfully with fresh extraction.');
       setFormData(JSON.parse(JSON.stringify(refreshed.parsed_data)));
       setIsEditing(false);
       onProfileUpdated(refreshed);
@@ -106,6 +98,14 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
       setErrorMsg(err instanceof Error ? err.message : 'Re-parse failed.');
     } finally {
       setIsReparsing(false);
+    }
+  };
+
+  const handleReparseClick = () => {
+    if (profile.is_user_corrected) {
+      setShowReparseConfirm(true);
+    } else {
+      executeReparse();
     }
   };
 
@@ -139,32 +139,30 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
   }, {} as Record<string, ParsedSkill[]>);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fade-in">
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-modal overflow-hidden my-auto animate-slide-up text-slate-100">
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/70 flex flex-wrap items-center justify-between gap-3">
+        <div className="px-6 py-4 border-b border-[#21262d] bg-[#0d1117]/70 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center">
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-white text-base">
+                <h3 className="font-bold text-slate-100 text-base">
                   {formData.candidate_name || filename}
                 </h3>
                 {profile.is_user_corrected ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                    <UserCheck className="h-3 w-3" />
-                    <span>User Verified</span>
-                  </span>
+                  <Badge variant="teal" icon={<UserCheck className="h-3 w-3" />}>
+                    User Verified
+                  </Badge>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                    <Sparkles className="h-3 w-3" />
-                    <span>Parser Extracted</span>
-                  </span>
+                  <Badge variant="brand" icon={<Sparkles className="h-3 w-3" />}>
+                    Parser Extracted
+                  </Badge>
                 )}
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 mt-0.5">
                 {formData.email || 'No email detected'} • {formData.location || 'Location unspecified'}
               </p>
             </div>
@@ -174,50 +172,57 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             {!isEditing ? (
               <>
-                <button
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  id="edit-corrections-btn"
                   onClick={() => setIsEditing(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
+                  icon={<Edit3 className="h-3.5 w-3.5 text-brand-400" />}
                 >
-                  <Edit3 className="h-3.5 w-3.5 text-indigo-400" />
-                  <span>Correct Facts</span>
-                </button>
+                  Correct Facts
+                </Button>
 
-                <button
-                  onClick={() => handleReparse(false)}
-                  disabled={isReparsing}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
-                  title="Re-run deterministic parser"
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  onClick={handleReparseClick}
+                  loading={isReparsing}
+                  icon={<RotateCw className="h-3.5 w-3.5 text-slate-400" />}
                 >
-                  <RotateCw className={`h-3.5 w-3.5 ${isReparsing ? 'animate-spin text-indigo-400' : 'text-slate-400'}`} />
-                  <span>Re-Parse</span>
-                </button>
+                  Re-Parse
+                </Button>
               </>
             ) : (
               <>
-                <button
+                <Button
+                  variant="teal"
+                  size="xs"
+                  id="save-corrections-btn"
                   onClick={handleSaveCorrections}
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
+                  loading={isSaving}
+                  icon={<Save className="h-3.5 w-3.5" />}
                 >
-                  <Save className="h-3.5 w-3.5" />
-                  <span>{isSaving ? 'Saving...' : 'Save Corrections'}</span>
-                </button>
+                  Save Corrections
+                </Button>
 
-                <button
+                <Button
+                  variant="ghost"
+                  size="xs"
                   onClick={() => {
                     setFormData(JSON.parse(JSON.stringify(profile.parsed_data)));
                     setIsEditing(false);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors"
                 >
                   Cancel
-                </button>
+                </Button>
               </>
             )}
 
             <button
+              id="close-resume-modal-btn"
+              aria-label="Close intelligence modal"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#21262d] transition-colors ml-1"
             >
               <X className="h-5 w-5" />
             </button>
@@ -232,8 +237,8 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
           </div>
         )}
         {successMsg && (
-          <div className="mx-6 mt-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <div className="mx-6 mt-3 p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-300 text-xs flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-teal-400 shrink-0" />
             <span>{successMsg}</span>
           </div>
         )}
@@ -241,11 +246,11 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
         {/* Warnings Banner */}
         {profile.parse_warnings.length > 0 && (
           <div className="mx-6 mt-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1">
-            <div className="flex items-center gap-2 font-semibold">
+            <div className="flex items-center gap-2 font-bold text-amber-200">
               <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
               <span>Parser Noted {profile.parse_warnings.length} Ambiguities / Anomaly Flags:</span>
             </div>
-            <ul className="list-disc list-inside text-amber-200/80 space-y-0.5 text-[11px] pl-6">
+            <ul className="list-disc list-inside text-amber-200/90 space-y-0.5 text-[11px] pl-6">
               {profile.parse_warnings.map((w, idx) => (
                 <li key={idx}>{w}</li>
               ))}
@@ -254,12 +259,12 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
         )}
 
         {/* Navigation Tabs */}
-        <div className="px-6 pt-3 border-b border-slate-800 flex items-center gap-2 overflow-x-auto text-xs">
+        <div className="px-6 pt-3 border-b border-[#21262d] flex items-center gap-2 overflow-x-auto text-xs">
           <button
             onClick={() => setActiveTab('skills')}
-            className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+            className={`px-3 py-2 border-b-2 font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
               activeTab === 'skills'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-brand-500 text-brand-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -269,9 +274,9 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
 
           <button
             onClick={() => setActiveTab('experience')}
-            className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+            className={`px-3 py-2 border-b-2 font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
               activeTab === 'experience'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-brand-500 text-brand-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -281,9 +286,9 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
 
           <button
             onClick={() => setActiveTab('education')}
-            className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+            className={`px-3 py-2 border-b-2 font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
               activeTab === 'education'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-brand-500 text-brand-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -293,9 +298,9 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
 
           <button
             onClick={() => setActiveTab('overview')}
-            className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+            className={`px-3 py-2 border-b-2 font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
               activeTab === 'overview'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-brand-500 text-brand-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -306,9 +311,9 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
           {profile.extracted_data && (
             <button
               onClick={() => setActiveTab('audit')}
-              className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+              className={`px-3 py-2 border-b-2 font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
                 activeTab === 'audit'
-                  ? 'border-indigo-500 text-indigo-400'
+                  ? 'border-brand-500 text-brand-300'
                   : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -324,9 +329,9 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
           {activeTab === 'skills' && (
             <div className="space-y-6">
               {isEditing && (
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-3">
                   <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                    <Plus className="h-3.5 w-3.5 text-indigo-400" />
+                    <Plus className="h-3.5 w-3.5 text-brand-400" />
                     <span>Add Verified Skill</span>
                   </span>
                   <div className="flex gap-2">
@@ -335,12 +340,12 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
                       placeholder="e.g. PyTorch, Rust, Docker"
                       value={newSkillName}
                       onChange={(e) => setNewSkillName(e.target.value)}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500/60"
                     />
                     <select
                       value={newSkillCategory}
                       onChange={(e) => setNewSkillCategory(e.target.value)}
-                      className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                      className="bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-brand-500/60"
                     >
                       <option value="language">Language</option>
                       <option value="framework">Framework</option>
@@ -349,13 +354,14 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
                       <option value="tool">Tool</option>
                       <option value="soft_skill">Soft Skill</option>
                     </select>
-                    <button
+                    <Button
                       type="button"
+                      variant="primary"
+                      size="xs"
                       onClick={handleAddSkill}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
                     >
                       Add
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -384,28 +390,30 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
                             }}
                             className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
                               skill.origin === 'user_added'
-                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                                : 'bg-slate-800/80 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:border-indigo-500/50'
+                                ? 'bg-teal-500/10 text-teal-300 border-teal-500/25'
+                                : 'bg-[#0d1117] hover:bg-[#21262d] text-slate-200 border-[#30363d] hover:border-brand-500/50'
                             }`}
                           >
                             <span>{skill.name}</span>
                             {skill.source && (
-                              <Info className="h-3 w-3 text-slate-400 group-hover:text-indigo-400" />
+                              <Info className="h-3 w-3 text-slate-500 group-hover:text-brand-400" />
                             )}
                             {skill.origin === 'user_added' && (
-                              <span className="text-[9px] bg-emerald-500/20 px-1 rounded text-emerald-300 font-mono">
+                              <span className="text-[9px] bg-teal-500/20 px-1 rounded text-teal-300 font-mono">
                                 user
                               </span>
                             )}
                             {isEditing && (
                               <button
+                                type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleRemoveSkill(globalIdx);
                                 }}
-                                className="p-0.5 text-slate-400 hover:text-rose-400 transition-colors ml-1"
+                                className="text-slate-500 hover:text-rose-400 p-0.5 ml-0.5"
+                                title="Remove skill"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <X className="h-3 w-3" />
                               </button>
                             )}
                           </div>
@@ -425,45 +433,36 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
                 <p className="text-xs text-slate-500 italic">No work experience extracted.</p>
               ) : (
                 formData.work_experience.map((exp, idx) => (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 relative"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <h4 className="font-bold text-white text-sm">
-                          {exp.role || 'Unspecified Role'}
-                        </h4>
-                        <p className="text-xs text-indigo-400 font-medium">
-                          {exp.company || 'Unspecified Company'}
-                        </p>
-                      </div>
-                      <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
-                        {exp.start_date || '?'} — {exp.end_date || (exp.is_current ? 'Present' : '?')}
+                  <div key={idx} className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-slate-100 text-xs">
+                        {exp.role || 'Role'} <span className="text-slate-400 font-normal">at</span> {exp.company || 'Company'}
+                      </h4>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {exp.start_date || 'Start'} – {exp.is_current ? 'Present' : exp.end_date || 'End'}
                       </span>
                     </div>
-
+                    {exp.description && (
+                      <p className="text-xs text-slate-300 leading-relaxed">{exp.description}</p>
+                    )}
                     {exp.highlights.length > 0 && (
-                      <ul className="list-disc list-inside space-y-1 text-xs text-slate-300 pt-2">
+                      <ul className="list-disc list-inside text-xs text-slate-400 space-y-1 pl-1">
                         {exp.highlights.map((h, hIdx) => (
                           <li key={hIdx}>{h}</li>
                         ))}
                       </ul>
                     )}
-
-                    {exp.source && (
-                      <button
-                        onClick={() =>
-                          setActiveEvidence({
-                            label: `Experience: ${exp.role || ''} at ${exp.company || ''}`,
-                            text: exp.source?.source_text || '',
-                          })
-                        }
-                        className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 pt-1 font-mono"
-                      >
-                        <Info className="h-3 w-3" />
-                        <span>Inspect Source Evidence</span>
-                      </button>
+                    {exp.skills_used.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1.5">
+                        {exp.skills_used.map((s, sIdx) => (
+                          <span
+                            key={sIdx}
+                            className="text-[10px] px-2 py-0.5 rounded bg-[#161b22] text-slate-300 border border-[#30363d]"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))
@@ -474,49 +473,50 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
           {/* TAB 3: EDUCATION & PROJECTS */}
           {activeTab === 'education' && (
             <div className="space-y-6">
-              {/* Education Section */}
+              {/* Education */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                  <GraduationCap className="h-4 w-4 text-indigo-400" />
+                  <GraduationCap className="h-4 w-4 text-brand-400" />
                   <span>Education</span>
                 </h4>
                 {formData.education.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No education entries extracted.</p>
                 ) : (
                   formData.education.map((edu, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex justify-between items-start"
-                    >
-                      <div>
-                        <p className="font-semibold text-white text-xs">{edu.degree || 'Degree'}</p>
-                        <p className="text-xs text-indigo-400">{edu.institution || 'Institution'}</p>
+                    <div key={idx} className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-100 text-xs">
+                          {edu.degree || 'Degree'} {edu.field_of_study ? `in ${edu.field_of_study}` : ''}
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-400">
+                          {edu.start_date || ''} – {edu.end_date || ''}
+                        </span>
                       </div>
-                      <span className="text-xs font-mono text-slate-400">{edu.end_date || ''}</span>
+                      <p className="text-xs text-slate-400">{edu.institution || 'Institution'}</p>
                     </div>
                   ))
                 )}
               </div>
 
-              {/* Projects Section */}
+              {/* Projects */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                  <FolderGit2 className="h-4 w-4 text-indigo-400" />
+                  <FolderGit2 className="h-4 w-4 text-brand-400" />
                   <span>Projects</span>
                 </h4>
                 {formData.projects.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No projects extracted.</p>
                 ) : (
                   formData.projects.map((proj, idx) => (
-                    <div key={idx} className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
-                      <p className="font-semibold text-white text-xs">{proj.name}</p>
-                      {proj.description && <p className="text-xs text-slate-400">{proj.description}</p>}
+                    <div key={idx} className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-1.5">
+                      <p className="font-bold text-slate-100 text-xs">{proj.name}</p>
+                      {proj.description && <p className="text-xs text-slate-400 leading-relaxed">{proj.description}</p>}
                       {proj.technologies.length > 0 && (
                         <div className="flex flex-wrap gap-1 pt-1">
                           {proj.technologies.map((t, tIdx) => (
                             <span
                               key={tIdx}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800"
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-[#161b22] text-slate-300 border border-[#30363d]"
                             >
                               {t}
                             </span>
@@ -528,10 +528,10 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
                 )}
               </div>
 
-              {/* Certifications Section */}
+              {/* Certifications */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                  <Award className="h-4 w-4 text-indigo-400" />
+                  <Award className="h-4 w-4 text-brand-400" />
                   <span>Certifications</span>
                 </h4>
                 {formData.certifications.length === 0 ? (
@@ -540,10 +540,10 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
                   formData.certifications.map((cert, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex justify-between items-center text-xs"
+                      className="p-3 rounded-xl bg-[#0d1117] border border-[#30363d] flex justify-between items-center text-xs"
                     >
-                      <span className="text-white font-medium">{cert.name}</span>
-                      <span className="text-slate-400 font-mono">{cert.date || ''}</span>
+                      <span className="text-slate-200 font-medium">{cert.name}</span>
+                      <span className="text-slate-400 font-mono text-[11px]">{cert.date || ''}</span>
                     </div>
                   ))
                 )}
@@ -551,76 +551,76 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* TAB 4: OVERVIEW & CONTACT */}
+          {/* TAB 4: OVERVIEW & PROFILE */}
           {activeTab === 'overview' && (
             <div className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
+                <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-1">
                   <span className="text-slate-500 text-[10px] uppercase font-bold">Candidate Name</span>
                   {isEditing ? (
                     <input
                       type="text"
                       value={formData.candidate_name || ''}
                       onChange={(e) => setFormData({ ...formData, candidate_name: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-white"
+                      className="w-full bg-[#161b22] border border-[#30363d] rounded p-1.5 text-white focus:outline-none focus:border-brand-500/60"
                     />
                   ) : (
-                    <p className="text-white font-medium">{formData.candidate_name || 'Not detected'}</p>
+                    <p className="text-slate-100 font-medium">{formData.candidate_name || 'Not detected'}</p>
                   )}
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
+                <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-1">
                   <span className="text-slate-500 text-[10px] uppercase font-bold">Email Address</span>
                   {isEditing ? (
                     <input
                       type="email"
                       value={formData.email || ''}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-white"
+                      className="w-full bg-[#161b22] border border-[#30363d] rounded p-1.5 text-white focus:outline-none focus:border-brand-500/60"
                     />
                   ) : (
-                    <p className="text-white font-medium">{formData.email || 'Not detected'}</p>
+                    <p className="text-slate-100 font-medium">{formData.email || 'Not detected'}</p>
                   )}
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
-                  <span className="text-slate-500 text-[10px] uppercase font-bold">Phone</span>
+                <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-1">
+                  <span className="text-slate-500 text-[10px] uppercase font-bold">Phone Number</span>
                   {isEditing ? (
                     <input
                       type="text"
                       value={formData.phone || ''}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-white"
+                      className="w-full bg-[#161b22] border border-[#30363d] rounded p-1.5 text-white focus:outline-none focus:border-brand-500/60"
                     />
                   ) : (
-                    <p className="text-white font-medium">{formData.phone || 'Not detected'}</p>
+                    <p className="text-slate-100 font-medium">{formData.phone || 'Not detected'}</p>
                   )}
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
+                <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-1">
                   <span className="text-slate-500 text-[10px] uppercase font-bold">Location</span>
                   {isEditing ? (
                     <input
                       type="text"
                       value={formData.location || ''}
                       onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-white"
+                      className="w-full bg-[#161b22] border border-[#30363d] rounded p-1.5 text-white focus:outline-none focus:border-brand-500/60"
                     />
                   ) : (
-                    <p className="text-white font-medium">{formData.location || 'Not detected'}</p>
+                    <p className="text-slate-100 font-medium">{formData.location || 'Not detected'}</p>
                   )}
                 </div>
               </div>
 
               {formData.summary && (
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+                <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-2">
                   <span className="text-slate-500 text-[10px] uppercase font-bold">Professional Summary</span>
                   {isEditing ? (
                     <textarea
                       rows={4}
                       value={formData.summary}
                       onChange={(e) => setFormData({ ...formData, summary: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white leading-relaxed"
+                      className="w-full bg-[#161b22] border border-[#30363d] rounded p-2 text-white leading-relaxed focus:outline-none focus:border-brand-500/60"
                     />
                   ) : (
                     <p className="text-slate-300 leading-relaxed">{formData.summary}</p>
@@ -630,21 +630,20 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* TAB 5: AUDIT SNAPSHOT */}
+          {/* TAB 5: AUDIT LOG */}
           {activeTab === 'audit' && profile.extracted_data && (
             <div className="space-y-4 text-xs">
-              <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/30 text-indigo-300 space-y-1">
+              <div className="p-4 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-300 space-y-1">
                 <span className="font-semibold flex items-center gap-1.5">
-                  <FileSearch className="h-4 w-4 text-indigo-400" />
-                  <span>Immutable Parser Audit Snapshot</span>
+                  <FileSearch className="h-4 w-4 text-brand-400" />
+                  <span>Immutable Baseline Extraction Snapshot</span>
                 </span>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  This baseline represents the original, unedited output produced by the deterministic parser.
-                  Even when you correct skills or dates, this record is preserved to ensure full provenance tracking.
+                  Preserved deterministic baseline produced on initial parser run. Any user adjustments are applied on top of this audit trail.
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-950 font-mono text-[11px] text-slate-300 overflow-x-auto border border-slate-800 max-h-96">
+              <div className="p-4 rounded-xl bg-[#0d1117] font-mono text-[11px] text-slate-300 overflow-x-auto border border-[#30363d] max-h-96">
                 <pre>{JSON.stringify(profile.extracted_data, null, 2)}</pre>
               </div>
             </div>
@@ -653,35 +652,44 @@ export const ResumeIntelligenceModal: React.FC<Props> = ({
 
         {/* Evidence Popover Modal */}
         {activeEvidence && (
-          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-lg w-full shadow-2xl space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Info className="h-4 w-4 text-indigo-400" />
-                  <span>{activeEvidence.label} — Source Evidence</span>
+          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-[#1c2128] border border-[#30363d] rounded-2xl p-5 max-w-lg w-full shadow-modal space-y-3 animate-slide-up">
+              <div className="flex items-center justify-between border-b border-[#30363d] pb-2.5">
+                <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                  <Info className="h-4 w-4 text-teal-400" />
+                  <span>{activeEvidence.label} — Source Proof</span>
                 </span>
                 <button
                   onClick={() => setActiveEvidence(null)}
-                  className="p-1 text-slate-400 hover:text-white"
+                  className="p-1 text-slate-400 hover:text-white rounded"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400">Verbatim snippet extracted directly from resume text:</p>
-              <div className="p-3 rounded-lg bg-slate-950 font-mono text-xs text-indigo-300 whitespace-pre-wrap border border-slate-800">
+              <p className="text-[11px] text-slate-400">Verbatim quote extracted directly from candidate resume document:</p>
+              <blockquote className="p-3 rounded-lg bg-[#0d1117] font-mono text-xs text-teal-300 whitespace-pre-wrap border border-[#30363d] border-l-2 border-l-teal-500 leading-relaxed">
                 "{activeEvidence.text}"
-              </div>
+              </blockquote>
               <div className="text-right">
-                <button
-                  onClick={() => setActiveEvidence(null)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium"
-                >
+                <Button variant="secondary" size="xs" onClick={() => setActiveEvidence(null)}>
                   Close
-                </button>
+                </Button>
               </div>
             </div>
           </div>
         )}
+
+        {/* Re-parse Confirmation Dialog */}
+        <ConfirmDialog
+          isOpen={showReparseConfirm}
+          title="Re-Parse Resume"
+          description="This candidate profile has manual user corrections. Re-parsing will overwrite your manual edits with fresh extraction output. Do you want to proceed?"
+          confirmLabel="Re-Parse & Overwrite"
+          variant="warning"
+          loading={isReparsing}
+          onConfirm={executeReparse}
+          onCancel={() => setShowReparseConfirm(false)}
+        />
       </div>
     </div>
   );

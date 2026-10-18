@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Menu,
   RefreshCw,
@@ -6,6 +7,7 @@ import {
   Loader2,
   Database,
   Radio,
+  ChevronRight,
 } from 'lucide-react';
 import { UseHealthCheckReturn } from '../hooks/useHealthCheck';
 
@@ -14,79 +16,97 @@ interface TopNavProps {
   health: UseHealthCheckReturn;
 }
 
+const routeTitles: Record<string, { title: string; category: string }> = {
+  '/': { title: 'Overview', category: 'Platform' },
+  '/resumes': { title: 'Resume Vault & Ingestion', category: 'Candidate' },
+  '/jobs': { title: 'Job Ingestion & Breakdown', category: 'Target Roles' },
+  '/match': { title: 'Explainable Job Matching', category: 'Flagship Engine' },
+  '/applications': { title: 'Application Tracking', category: 'Roadmap' },
+  '/analytics': { title: 'Market & Skill Analytics', category: 'Roadmap' },
+};
+
 export const TopNav: React.FC<TopNavProps> = ({ onToggleSidebar, health }) => {
+  const location = useLocation();
+  const currentRoute = routeTitles[location.pathname] || { title: 'Workspace', category: 'ApplyGraph' };
   const { status, data, latencyMs, refetch, isPolling, togglePolling } = health;
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 px-4 sm:px-6 flex items-center justify-between">
-      {/* Left side: mobile toggle & breadcrumb */}
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 h-14 bg-[#0d1117]/85 backdrop-blur-md border-b border-[#21262d] px-4 sm:px-6 flex items-center justify-between">
+      {/* Left side: mobile toggle & clean breadcrumbs */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onToggleSidebar}
-          className="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#161b22] transition-colors"
           aria-label="Open sidebar"
         >
           <Menu className="h-5 w-5" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs uppercase tracking-wider font-semibold text-slate-500 hidden sm:inline">
-            Workspace
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs truncate">
+          <span className="text-slate-400 font-medium hidden sm:inline">
+            {currentRoute.category}
           </span>
-          <span className="text-slate-600 hidden sm:inline">/</span>
-          <h1 className="text-sm sm:text-base font-semibold text-slate-200">
-            ApplyGraph Core
-          </h1>
-        </div>
+          <ChevronRight className="h-3.5 w-3.5 text-slate-600 hidden sm:inline" />
+          <span className="font-semibold text-slate-100 truncate">
+            {currentRoute.title}
+          </span>
+        </nav>
       </div>
 
-      {/* Right side: Backend Health Pill & Action controls */}
-      <div className="flex items-center gap-3">
-        {/* Backend health status badge */}
+      {/* Right side: Real-time Telemetry & Controls */}
+      <div className="flex items-center gap-2.5">
+        {/* Backend & DB Health Indicator */}
         <div
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
             status === 'loading'
               ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
               : status === 'success'
-              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 shadow-sm shadow-emerald-950/40'
+              ? 'bg-[#161b22] text-slate-200 border-[#30363d]'
               : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
           }`}
           title={
             status === 'success'
-              ? `Backend: ${data?.service} (${data?.environment}) - DB: ${
-                  data?.database.connected ? 'Connected' : 'Disconnected'
-                }`
+              ? `Backend: ${data?.service} v${data?.version} • DB: ${
+                  data?.database.connected ? 'Connected' : 'Offline'
+                } • Latency: ${latencyMs ?? '?'}ms`
               : status === 'error'
               ? 'Backend unreachable. Click refresh to retry.'
-              : 'Checking backend status...'
+              : 'Connecting to API...'
           }
         >
           {status === 'loading' && (
             <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
-              <span>Connecting...</span>
+              <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
+              <span className="text-[11px]">Connecting...</span>
             </>
           )}
 
           {status === 'success' && (
             <>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              {/* API Online pill */}
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                API Online
               </span>
-              <span className="font-semibold">API Online</span>
+
+              {/* Latency */}
               {latencyMs !== null && (
-                <span className="text-[10px] text-emerald-400/80 font-mono hidden md:inline">
+                <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
                   {latencyMs}ms
                 </span>
               )}
+
+              {/* Database status separate badge */}
               {data?.database.connected ? (
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/40 hidden lg:inline flex items-center gap-1">
-                  <Database className="h-2.5 w-2.5 inline" /> DB OK
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 hidden sm:inline-flex items-center gap-1">
+                  <Database className="h-2.5 w-2.5" /> DB Connected
                 </span>
               ) : (
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/40 hidden lg:inline">
-                  DB Offline
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 hidden sm:inline-flex items-center gap-1">
+                  <Database className="h-2.5 w-2.5" /> DB Standby
                 </span>
               )}
             </>
@@ -95,46 +115,50 @@ export const TopNav: React.FC<TopNavProps> = ({ onToggleSidebar, health }) => {
           {status === 'error' && (
             <>
               <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
-              <span className="font-semibold">Backend Offline</span>
+              <span className="text-[11px] font-semibold text-rose-300">API Offline</span>
             </>
           )}
         </div>
 
-        {/* Polling indicator button */}
+        {/* Polling live toggle */}
         <button
           onClick={togglePolling}
-          className={`p-2 rounded-lg text-xs font-medium border transition-colors hidden sm:flex items-center gap-1.5 ${
+          className={`p-1.5 rounded-lg text-xs font-medium border transition-colors hidden sm:flex items-center gap-1.5 ${
             isPolling
-              ? 'bg-slate-800/80 text-slate-300 border-slate-700/80 hover:bg-slate-700/80'
-              : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
+              ? 'bg-[#161b22] text-slate-300 border-[#30363d] hover:border-[#444c56]'
+              : 'bg-[#0d1117] text-slate-500 border-[#21262d] hover:text-slate-300'
           }`}
-          title={isPolling ? 'Auto-check enabled (30s)' : 'Auto-check paused'}
+          title={isPolling ? 'Live polling active (30s interval)' : 'Live polling paused'}
+          aria-label={isPolling ? 'Live polling active' : 'Live polling paused'}
         >
           <Radio
             className={`h-3.5 w-3.5 ${
-              isPolling ? 'text-indigo-400 animate-pulse' : 'text-slate-500'
+              isPolling ? 'text-brand-400 animate-pulse' : 'text-slate-600'
             }`}
           />
-          <span className="hidden md:inline">
+          <span className="text-[11px] hidden lg:inline">
             {isPolling ? 'Live' : 'Paused'}
           </span>
         </button>
 
-        {/* Re-check trigger button */}
+        {/* Manual Refresh */}
         <button
           onClick={() => refetch()}
           disabled={status === 'loading'}
-          className="p-2 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700/80 hover:bg-slate-700/80 hover:text-white transition-colors disabled:opacity-50"
-          title="Refresh Backend Status"
-          aria-label="Refresh Backend Status"
+          className="p-1.5 rounded-lg bg-[#161b22] text-slate-300 border border-[#30363d] hover:border-[#444c56] hover:text-white transition-colors disabled:opacity-50"
+          title="Refresh backend telemetry"
+          aria-label="Refresh backend telemetry"
         >
           <RefreshCw
-            className={`h-4 w-4 ${status === 'loading' ? 'animate-spin text-indigo-400' : ''}`}
+            className={`h-3.5 w-3.5 ${status === 'loading' ? 'animate-spin text-brand-400' : ''}`}
           />
         </button>
 
-        {/* User avatar indicator */}
-        <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 text-white font-bold text-xs flex items-center justify-center ring-2 ring-slate-800">
+        {/* User Badge */}
+        <div
+          className="h-7 w-7 rounded-lg bg-gradient-to-tr from-brand-600 to-indigo-500 text-white font-bold text-[11px] flex items-center justify-center ring-1 ring-white/10"
+          title="User Workspace"
+        >
           AG
         </div>
       </div>

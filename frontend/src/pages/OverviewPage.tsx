@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext, Link } from 'react-router-dom';
 import {
   Server,
@@ -9,414 +9,561 @@ import {
   Sparkles,
   ArrowRight,
   RefreshCw,
-  Cpu,
   Layers,
-  FileCheck,
-  Search,
-  AlertTriangle,
-  Code2,
+  FileText,
+  Briefcase,
+  GitCompare,
+  Plus,
+  Scale,
   ExternalLink,
+  ChevronRight,
+  AlertTriangle,
+  Zap,
 } from 'lucide-react';
 import { UseHealthCheckReturn } from '../hooks/useHealthCheck';
 import { API_BASE_URL } from '../services/api';
+import { fetchResumes, fetchParsedResume } from '../services/resumeService';
+import { fetchJobs } from '../services/jobService';
+import { fetchMatchReports } from '../services/matchService';
+import { ResumeSummary } from '../types/resume';
+import { JobSummary } from '../types/job';
+import { MatchReportSummary } from '../types/match';
+import { StatCard, Button, Badge, ScoreRing } from '../components/ui';
 
 export const OverviewPage: React.FC = () => {
   const { health } = useOutletContext<{ health: UseHealthCheckReturn }>();
   const {
-    status,
-    data,
-    error,
+    status: healthStatus,
+    data: healthData,
     latencyMs,
-    lastChecked,
-    refetch,
+    refetch: refetchHealth,
     isPolling,
     togglePolling,
   } = health;
 
+  // Real API state
+  const [resumes, setResumes] = useState<ResumeSummary[]>([]);
+  const [parsedCount, setParsedCount] = useState<number | null>(null);
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [totalJobs, setTotalJobs] = useState<number>(0);
+  const [matches, setMatches] = useState<MatchReportSummary[]>([]);
+  const [totalMatches, setTotalMatches] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const loadDashboardData = useCallback(async () => {
+    setIsLoading(true);
+    setApiError(null);
+    try {
+      // 1. Fetch real resumes, jobs, and match reports in parallel
+      const [resumesRes, jobsRes, matchesRes] = await Promise.allSettled([
+        fetchResumes(),
+        fetchJobs(1, 100),
+        fetchMatchReports(1, 10),
+      ]);
+
+      let loadedResumes: ResumeSummary[] = [];
+      if (resumesRes.status === 'fulfilled') {
+        loadedResumes = resumesRes.value;
+        setResumes(loadedResumes);
+      }
+
+      if (jobsRes.status === 'fulfilled') {
+        setJobs(jobsRes.value.items);
+        setTotalJobs(jobsRes.value.total);
+      }
+
+      if (matchesRes.status === 'fulfilled') {
+        setMatches(matchesRes.value.items);
+        setTotalMatches(matchesRes.value.total);
+      }
+
+      // Check how many resumes have parsed intelligence
+      if (loadedResumes.length > 0) {
+        const parsedChecks = await Promise.allSettled(
+          loadedResumes.slice(0, 20).map((r) => fetchParsedResume(r.id))
+        );
+        const count = parsedChecks.filter((c) => c.status === 'fulfilled').length;
+        setParsedCount(count);
+      } else {
+        setParsedCount(0);
+      }
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : 'Failed to query workspace API.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  const resumeMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    resumes.forEach((r) => map.set(r.id, r.filename));
+    return map;
+  }, [resumes]);
+
+  const jobMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    jobs.forEach((j) => map.set(j.id, j.title || 'Job Posting'));
+    return map;
+  }, [jobs]);
+
+  // Guided workflow step progress
+  const hasResumes = resumes.length > 0;
+  const hasJobs = totalJobs > 0;
+  const hasMatches = totalMatches > 0;
+
   return (
-    <div className="space-y-8 pb-10">
-      {/* Welcome Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-950/60 via-slate-900 to-slate-900 border border-indigo-500/20 p-6 sm:p-8 shadow-xl">
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-3 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Phase 1 — Project Foundation Established</span>
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Evidence-Based AI Job Matching & Application Tracking
-            </h2>
-            <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
-              ApplyGraph bridges the gap between candidate resumes and job postings by extracting verified proof points, identifying exact skill gaps, and tracking applications with complete provenance.
+    <div className="space-y-6 pb-12">
+      {/* 1. Header with Title & Primary Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#21262d]">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">
+              Evidence Workspace
+            </h1>
+            <Badge variant="brand" icon={<Sparkles className="h-3 w-3" />}>
+              Production SaaS
+            </Badge>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+            Deterministic AI job qualification with dual-source proof verification.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Link to="/resumes">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<FileText className="h-3.5 w-3.5 text-slate-400" />}
+            >
+              Add Resume
+            </Button>
+          </Link>
+          <Link to="/jobs">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Briefcase className="h-3.5 w-3.5 text-slate-400" />}
+            >
+              Add Job
+            </Button>
+          </Link>
+          <Link to="/match">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<GitCompare className="h-3.5 w-3.5" />}
+            >
+              Run Match
+            </Button>
+          </Link>
+          <button
+            onClick={() => {
+              refetchHealth();
+              loadDashboardData();
+            }}
+            disabled={isLoading}
+            className="p-2 rounded-lg bg-[#161b22] text-slate-400 hover:text-white border border-[#30363d] hover:border-[#444c56] transition-colors disabled:opacity-50"
+            title="Refresh dashboard metrics"
+            aria-label="Refresh dashboard metrics"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin text-brand-400' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Backend / API Connectivity Notice if offline */}
+      {healthStatus === 'error' && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-3">
+          <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+          <div className="flex-1 space-y-1">
+            <p className="font-semibold text-rose-200">FastAPI Backend Unreachable</p>
+            <p className="text-rose-300/80 leading-relaxed">
+              Unable to reach backend service at <code className="bg-slate-900/80 px-1 py-0.5 rounded">{API_BASE_URL}</code>. Ensure the FastAPI process is active on port 8000.
             </p>
           </div>
+          <Button variant="danger" size="xs" onClick={() => refetchHealth()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
-          <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
-            <a
-              href="http://localhost:8000/api/v1/docs"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-all shadow-md shadow-indigo-600/30 hover:shadow-indigo-500/40"
-            >
-              <span>Explore Swagger API</span>
-              <ExternalLink className="h-4 w-4" />
-            </a>
-            <button
-              onClick={() => refetch()}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-sm border border-slate-700 transition-colors"
-            >
-              <RefreshCw className={`h-4 w-4 ${status === 'loading' ? 'animate-spin text-indigo-400' : ''}`} />
-              <span>Ping Health Probe</span>
-            </button>
+      {apiError && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-400" />
+            <span>{apiError}</span>
+          </div>
+          <button onClick={() => setApiError(null)} className="text-amber-400 hover:text-white text-xs">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* 2. Key Metrics Grid (Actual API Data) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Uploaded Resumes"
+          value={isLoading ? '—' : resumes.length}
+          icon={<FileText className="h-4 w-4" />}
+          accent="brand"
+          loading={isLoading}
+        />
+        <StatCard
+          label="Parsed Intelligence"
+          value={isLoading ? '—' : parsedCount !== null ? `${parsedCount} / ${resumes.length}` : '—'}
+          icon={<Zap className="h-4 w-4" />}
+          accent="teal"
+          loading={isLoading}
+        />
+        <StatCard
+          label="Target Job Postings"
+          value={isLoading ? '—' : totalJobs}
+          icon={<Briefcase className="h-4 w-4" />}
+          accent="muted"
+          loading={isLoading}
+        />
+        <StatCard
+          label="Match Evaluations"
+          value={isLoading ? '—' : totalMatches}
+          icon={<Scale className="h-4 w-4" />}
+          accent="amber"
+          loading={isLoading}
+        />
+      </div>
+
+      {/* 3. Guided 3-Step Workflow Card */}
+      <div className="rounded-xl bg-[#161b22] border border-[#30363d] p-5">
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-[#21262d]">
+          <div>
+            <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <Layers className="h-4 w-4 text-brand-400" />
+              <span>Evidence Pipeline Workflow</span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Complete these steps to generate deterministic qualification match reports with verbatim proof.
+            </p>
+          </div>
+          <span className="text-xs text-slate-400 font-mono">
+            {Number(hasResumes) + Number(hasJobs) + Number(hasMatches)} of 3 Complete
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Step 1: Add Resume */}
+          <div
+            className={`p-4 rounded-xl border transition-all ${
+              hasResumes
+                ? 'bg-[#0d1117]/60 border-teal-500/30'
+                : 'bg-[#0d1117] border-[#30363d]'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Step 1
+              </span>
+              {hasResumes ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {resumes.length} Ingested
+                </span>
+              ) : (
+                <span className="text-[11px] font-semibold text-slate-400">Pending</span>
+              )}
+            </div>
+            <h3 className="text-sm font-bold text-slate-100 mt-2">Add Candidate Resume</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Upload PDF or plain-text CV. Extracts raw text, parsed skills, and verifiable source spans.
+            </p>
+            <div className="mt-3">
+              <Link
+                to="/resumes"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-400 hover:text-brand-300"
+              >
+                <span>{hasResumes ? 'Manage Resumes' : 'Upload Resume'}</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Step 2: Add Target Job */}
+          <div
+            className={`p-4 rounded-xl border transition-all ${
+              hasJobs
+                ? 'bg-[#0d1117]/60 border-teal-500/30'
+                : hasResumes
+                ? 'bg-[#0d1117] border-brand-500/30'
+                : 'bg-[#0d1117] border-[#30363d]'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Step 2
+              </span>
+              {hasJobs ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {totalJobs} Saved
+                </span>
+              ) : (
+                <span className="text-[11px] font-semibold text-slate-400">Pending</span>
+              )}
+            </div>
+            <h3 className="text-sm font-bold text-slate-100 mt-2">Add Job Description</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Paste or upload job posting text. Segregates mandatory requirements from preferred traits.
+            </p>
+            <div className="mt-3">
+              <Link
+                to="/jobs"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-400 hover:text-brand-300"
+              >
+                <span>{hasJobs ? 'Manage Jobs' : 'Ingest Job'}</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Step 3: Run Match */}
+          <div
+            className={`p-4 rounded-xl border transition-all ${
+              hasMatches
+                ? 'bg-[#0d1117]/60 border-teal-500/30'
+                : hasResumes && hasJobs
+                ? 'bg-[#0d1117] border-brand-500/40'
+                : 'bg-[#0d1117] border-[#30363d]'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Step 3
+              </span>
+              {hasMatches ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {totalMatches} Evaluated
+                </span>
+              ) : (
+                <span className="text-[11px] font-semibold text-slate-400">Ready</span>
+              )}
+            </div>
+            <h3 className="text-sm font-bold text-slate-100 mt-2">Generate Match Report</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Computes Qualification Index, breaks down requirement coverage, and provides verbatim proof.
+            </p>
+            <div className="mt-3">
+              <Link
+                to="/match"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-400 hover:text-brand-300"
+              >
+                <span>{hasMatches ? 'View Workspace' : 'Run Match'}</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Backend Live Health Section */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Server className="h-4 w-4 text-indigo-400" />
-              <span>Backend Core Service Status</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              Real-time telemetry from <code className="text-indigo-300 bg-slate-800/80 px-1 py-0.5 rounded">{API_BASE_URL}/api/v1/health</code>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={togglePolling}
-              className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/80 transition-colors"
-            >
-              {isPolling ? 'Disable Polling' : 'Enable Polling'}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Main Status Card */}
-          <div className="md:col-span-2 rounded-xl bg-slate-900/90 border border-slate-800 p-5 shadow-sm">
-            {status === 'loading' && (
-              <div className="py-6 flex flex-col items-center justify-center text-center space-y-3">
-                <div className="relative">
-                  <div className="w-10 h-10 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-200">Contacting Backend API...</p>
-                  <p className="text-xs text-slate-400">Querying {API_BASE_URL}/api/v1/health</p>
-                </div>
-              </div>
-            )}
-
-            {status === 'success' && data && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                      <CheckCircle2 className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-white text-base">
-                          {data.service}
-                        </span>
-                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                          {data.status.toUpperCase()}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400">
-                        Environment: <span className="text-slate-200 font-medium capitalize">{data.environment}</span> • Version: <span className="text-slate-200 font-mono">{data.version}</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {latencyMs !== null && (
-                    <div className="text-right">
-                      <span className="text-xs text-slate-400 block">Latency</span>
-                      <span className="text-sm font-mono font-bold text-emerald-400">
-                        {latencyMs} ms
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Subsystem status badges */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-800/80">
-                  <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 flex items-start gap-3">
-                    <div className={`p-2 rounded-lg ${data.database.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}`}>
-                      <Database className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-200">PostgreSQL Engine</span>
-                        <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded ${data.database.connected ? 'bg-emerald-950 text-emerald-300' : 'bg-amber-950 text-amber-300'}`}>
-                          {data.database.connected ? 'Connected' : 'Pending Docker / Standby'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                        {data.database.details || (data.database.connected ? 'Operational' : 'Database container not running yet')}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-                      <Clock className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-semibold text-slate-200">Server Clock</span>
-                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                        {new Date(data.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {status === 'error' && (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
-                    <AlertCircle className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-white text-base">Backend Unreachable</h4>
-                    <p className="text-xs text-rose-300/90 mt-0.5 leading-relaxed">
-                      {error || 'Unable to connect to FastAPI at ' + API_BASE_URL}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-lg bg-rose-950/30 border border-rose-900/50 text-xs text-slate-300 space-y-2">
-                  <p className="font-semibold text-rose-200">Troubleshooting Steps:</p>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
-                    <li>Ensure backend server is running: <code className="bg-slate-900 px-1 py-0.5 rounded text-slate-200">uvicorn app.main:app --port 8000</code></li>
-                    <li>Verify <code className="bg-slate-900 px-1 py-0.5 rounded text-slate-200">VITE_API_BASE_URL</code> points to <code className="bg-slate-900 px-1 py-0.5 rounded text-slate-200">http://localhost:8000</code></li>
-                    <li>Check CORS origins in <code className="bg-slate-900 px-1 py-0.5 rounded text-slate-200">.env</code> include <code className="bg-slate-900 px-1 py-0.5 rounded text-slate-200">http://localhost:5173</code></li>
-                  </ol>
-                  <button
-                    onClick={() => refetch()}
-                    className="mt-2 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs transition-colors flex items-center gap-1.5"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Retry Connection</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Configuration Inspector Card */}
-          <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-5 flex flex-col justify-between">
+      {/* 4. Two-Column Layout: Recent Match Evaluations & Telemetry */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left (2 cols): Recent Match Reports */}
+        <div className="lg:col-span-2 rounded-xl bg-[#161b22] border border-[#30363d] overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-[#21262d] flex items-center justify-between">
             <div>
-              <div className="flex items-center gap-2 text-sm font-bold text-white mb-3">
-                <Code2 className="h-4 w-4 text-indigo-400" />
-                <span>Runtime Parameters</span>
-              </div>
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
-                  <span className="text-slate-400">Target API</span>
-                  <span className="font-mono text-indigo-300 text-[11px] truncate max-w-[150px]">
-                    {API_BASE_URL}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
-                  <span className="text-slate-400">Frontend Port</span>
-                  <span className="font-mono text-slate-200 text-[11px]">5173 (Vite)</span>
-                </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
-                  <span className="text-slate-400">Backend Port</span>
-                  <span className="font-mono text-slate-200 text-[11px]">8000 (FastAPI)</span>
-                </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
-                  <span className="text-slate-400">Database Port</span>
-                  <span className="font-mono text-slate-200 text-[11px]">5432 (PostgreSQL)</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Last Checked</span>
-                  <span className="font-mono text-slate-400 text-[11px]">
-                    {lastChecked ? lastChecked.toLocaleTimeString() : 'Pending'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800/80">
-              <a
-                href={`${API_BASE_URL}/api/v1/health`}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700/60 transition-colors"
-              >
-                <span>Direct JSON Endpoint</span>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Product Vision / Evidence-Based Matching Engine Demo */}
-      <section className="space-y-3">
-        <div>
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Layers className="h-4 w-4 text-indigo-400" />
-            <span>ApplyGraph Evidence Grounding Engine — Architectural Preview</span>
-          </h3>
-          <p className="text-xs text-slate-400">
-            How ApplyGraph connects resume evidence to requirements (Phase 2 Roadmap Preview)
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Sample Match Card with Provenance */}
-          <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  Supported Skill
-                </span>
-                <span className="font-bold text-white text-sm">
-                  FastAPI & Python Microservices
-                </span>
-              </div>
-              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-                96% Confidence
-              </span>
-            </div>
-
-            <p className="text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Target Requirement:</span> "Experience designing and shipping resilient RESTful APIs in Python with FastAPI or modern ASGI frameworks."
-            </p>
-
-            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-300">
-                <FileCheck className="h-3.5 w-3.5 text-indigo-400" />
-                <span>Extracted Resume Evidence (Staff Engineer @ CloudScale):</span>
-              </div>
-              <blockquote className="text-xs text-slate-300 italic border-l-2 border-indigo-500 pl-2.5">
-                "Architected core ingestion pipeline with FastAPI 0.110 and SQLAlchemy 2.x handling 15M daily requests with sub-40ms latency."
-              </blockquote>
-            </div>
-          </div>
-
-          {/* Sample Gap Card */}
-          <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                  Identified Skill Gap
-                </span>
-                <span className="font-bold text-white text-sm">
-                  Kubernetes Cluster Orchestration
-                </span>
-              </div>
-              <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/40">
-                Actionable Gap
-              </span>
-            </div>
-
-            <p className="text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Target Requirement:</span> "Hands-on experience deploying and managing multi-tenant Kubernetes clusters in AWS/GCP."
-            </p>
-
-            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-300">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                <span>Evidence Diagnostic:</span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Docker & Compose experience found; no explicit K8s cluster administration or Helm chart deployment found in parsed experience.
+              <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <Scale className="h-4 w-4 text-brand-400" />
+                <span>Recent Match Evaluations</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Qualification Index scores and evidence provenance
               </p>
             </div>
+            {matches.length > 0 && (
+              <Link
+                to="/match"
+                className="text-xs text-brand-400 hover:text-brand-300 font-semibold inline-flex items-center gap-1"
+              >
+                <span>All Reports</span>
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
+          </div>
+
+          {isLoading ? (
+            <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin text-brand-400" />
+              <span>Loading recent evaluations...</span>
+            </div>
+          ) : matches.length === 0 ? (
+            <div className="py-12 px-6 text-center space-y-3">
+              <Scale className="h-8 w-8 text-slate-600 mx-auto" />
+              <p className="text-sm font-semibold text-slate-200">No match reports yet</p>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                Once you upload a resume and ingest a job description, generate an explainable match evaluation to view Qualification Index scores here.
+              </p>
+              <Link to="/match" className="inline-block mt-2">
+                <Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />}>
+                  Run First Match
+                </Button>
+              </Link>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#21262d]">
+              {matches.slice(0, 5).map((match) => {
+                const resumeName = resumeMap.get(match.resume_id) || `Resume ${match.resume_id.slice(0, 8)}`;
+                const jobTitle = jobMap.get(match.job_id) || `Job ${match.job_id.slice(0, 8)}`;
+
+                return (
+                  <div
+                    key={match.id}
+                    className="p-4 hover:bg-[#1c2128]/50 transition-colors flex items-center justify-between gap-4"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-100 text-xs truncate max-w-[220px]">
+                          {resumeName}
+                        </span>
+                        <span className="text-slate-600 text-xs">vs</span>
+                        <span className="font-medium text-slate-300 text-xs truncate max-w-[220px]">
+                          {jobTitle}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400">
+                        <span>{new Date(match.created_at).toLocaleDateString()}</span>
+                        <span>•</span>
+                        {match.is_provisional ? (
+                          <Badge variant="amber" icon={<AlertTriangle className="h-3 w-3" />}>
+                            Provisional
+                          </Badge>
+                        ) : (
+                          <Badge variant="teal" icon={<CheckCircle2 className="h-3 w-3" />}>
+                            Verified
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <ScoreRing
+                        score={match.overall_score}
+                        size="sm"
+                        label="QI"
+                        provisional={match.is_provisional}
+                      />
+                      <Link to="/match">
+                        <Button variant="ghost" size="xs">
+                          Inspect
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Right (1 col): System Telemetry & Architecture */}
+        <div className="rounded-xl bg-[#161b22] border border-[#30363d] p-5 flex flex-col justify-between space-y-4">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-[#21262d]">
+              <div className="flex items-center gap-2">
+                <Server className="h-4 w-4 text-brand-400" />
+                <h2 className="text-sm font-bold text-slate-100">Core Telemetry</h2>
+              </div>
+              <button
+                onClick={togglePolling}
+                className="text-[10px] font-medium px-2 py-0.5 rounded bg-[#21262d] text-slate-400 hover:text-white border border-[#30363d] transition-colors"
+              >
+                {isPolling ? 'Pause Polling' : 'Enable Polling'}
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-xs">
+              {/* Service status */}
+              <div className="flex items-center justify-between pb-2 border-b border-[#21262d]">
+                <span className="text-slate-400">FastAPI Service</span>
+                <span className="font-mono text-xs">
+                  {healthStatus === 'success' ? (
+                    <span className="text-emerald-400 flex items-center gap-1 font-semibold">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Operational
+                    </span>
+                  ) : healthStatus === 'loading' ? (
+                    <span className="text-amber-400">Connecting...</span>
+                  ) : (
+                    <span className="text-rose-400">Offline</span>
+                  )}
+                </span>
+              </div>
+
+              {/* Database status */}
+              <div className="flex items-center justify-between pb-2 border-b border-[#21262d]">
+                <span className="text-slate-400">PostgreSQL Engine</span>
+                <span className="font-mono text-xs">
+                  {healthData?.database.connected ? (
+                    <span className="text-emerald-400 flex items-center gap-1 font-semibold">
+                      <Database className="h-3 w-3" /> Connected
+                    </span>
+                  ) : (
+                    <span className="text-amber-400 flex items-center gap-1">
+                      <Database className="h-3 w-3" /> Standby
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              {/* Latency */}
+              <div className="flex items-center justify-between pb-2 border-b border-[#21262d]">
+                <span className="text-slate-400">Roundtrip Latency</span>
+                <span className="font-mono text-xs text-slate-200">
+                  {latencyMs !== null ? `${latencyMs} ms` : '—'}
+                </span>
+              </div>
+
+              {/* Environment */}
+              <div className="flex items-center justify-between pb-2 border-b border-[#21262d]">
+                <span className="text-slate-400">Environment</span>
+                <span className="font-mono text-xs text-slate-200 capitalize">
+                  {healthData?.environment || 'development'}
+                </span>
+              </div>
+
+              {/* Version */}
+              <div className="flex items-center justify-between pb-2 border-b border-[#21262d]">
+                <span className="text-slate-400">API Version</span>
+                <span className="font-mono text-xs text-brand-300">
+                  v{healthData?.version || '0.1.0'}
+                </span>
+              </div>
+
+              {/* Server Clock */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Server Timestamp
+                </span>
+                <span className="font-mono text-[11px] text-slate-400">
+                  {healthData?.timestamp ? new Date(healthData.timestamp).toLocaleTimeString() : '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-[#21262d]">
+            <a
+              href={`${API_BASE_URL}/api/v1/docs`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-slate-300 hover:text-white text-xs font-semibold border border-[#30363d] transition-colors"
+            >
+              <span>Swagger REST Documentation</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
           </div>
         </div>
-      </section>
-
-      {/* Module Navigation Cards */}
-      <section className="space-y-3">
-        <h3 className="text-base font-bold text-white">Upcoming Functional Modules</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link
-            to="/resumes"
-            className="group p-5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 transition-all shadow-sm"
-          >
-            <div className="h-9 w-9 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-              <FileCheck className="h-5 w-5" />
-            </div>
-            <h4 className="font-bold text-white text-sm group-hover:text-indigo-300 transition-colors">
-              Resumes
-            </h4>
-            <p className="text-xs text-slate-400 mt-1">
-              Upload CVs, parse skills, and extract structural career evidence.
-            </p>
-            <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-indigo-400">
-              <span>View Module</span>
-              <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-
-          <Link
-            to="/jobs"
-            className="group p-5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 transition-all shadow-sm"
-          >
-            <div className="h-9 w-9 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-              <Search className="h-5 w-5" />
-            </div>
-            <h4 className="font-bold text-white text-sm group-hover:text-violet-300 transition-colors">
-              Find Jobs
-            </h4>
-            <p className="text-xs text-slate-400 mt-1">
-              Ingest job postings and break down hard and soft requirements.
-            </p>
-            <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-violet-400">
-              <span>View Module</span>
-              <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-
-          <Link
-            to="/applications"
-            className="group p-5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 transition-all shadow-sm"
-          >
-            <div className="h-9 w-9 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-              <Layers className="h-5 w-5" />
-            </div>
-            <h4 className="font-bold text-white text-sm group-hover:text-blue-300 transition-colors">
-              Applications
-            </h4>
-            <p className="text-xs text-slate-400 mt-1">
-              Kanban application pipeline, interview tracking, and match logs.
-            </p>
-            <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-blue-400">
-              <span>View Module</span>
-              <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-
-          <Link
-            to="/analytics"
-            className="group p-5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 transition-all shadow-sm"
-          >
-            <div className="h-9 w-9 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-              <Cpu className="h-5 w-5" />
-            </div>
-            <h4 className="font-bold text-white text-sm group-hover:text-emerald-300 transition-colors">
-              Analytics
-            </h4>
-            <p className="text-xs text-slate-400 mt-1">
-              Skill graph alignment, market demand heatmaps, and ROI metrics.
-            </p>
-            <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
-              <span>View Module</span>
-              <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-        </div>
-      </section>
+      </div>
     </div>
   );
 };

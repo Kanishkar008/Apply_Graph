@@ -6,15 +6,14 @@ import {
   Eye,
   CheckCircle2,
   AlertCircle,
-  Loader2,
   RefreshCw,
   Copy,
   Check,
   X,
   FileUp,
-  FileCode,
-  Info,
   Sparkles,
+  Search,
+  Info,
 } from 'lucide-react';
 import { ResumeSummary, ResumeDetail, ParsedResumeResponse } from '../types/resume';
 import {
@@ -26,23 +25,39 @@ import {
   parseResume,
 } from '../services/resumeService';
 import { ResumeIntelligenceModal } from '../components/ResumeIntelligenceModal';
+import {
+  Button,
+  Badge,
+  Modal,
+  ConfirmDialog,
+  useToast,
+  TableRowSkeleton,
+  EmptyState,
+} from '../components/ui';
 
 export const ResumesPage: React.FC = () => {
+  const { addToast } = useToast();
+
   const [resumes, setResumes] = useState<ResumeSummary[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
 
+  // Deletion modal state
+  const [deletingResume, setDeletingResume] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // File upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Modal inspection state
+  // Raw text modal state
   const [activeResume, setActiveResume] = useState<ResumeDetail | null>(null);
   const [isFetchingDetail, setIsFetchingDetail] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
 
-  // Structured Intelligence state (Phase 2B)
+  // Structured Intelligence modal state
   const [activeParsedProfile, setActiveParsedProfile] = useState<ParsedResumeResponse | null>(null);
   const [parsingResumeId, setParsingResumeId] = useState<string | null>(null);
   const [activeProfileFilename, setActiveProfileFilename] = useState<string>('');
@@ -57,32 +72,61 @@ export const ResumesPage: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load resumes.';
       setErrorMessage(msg);
+      addToast(msg, 'error');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [addToast]);
 
   useEffect(() => {
     loadResumes();
   }, [loadResumes]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const validateAndSelectFile = (file: File) => {
     setErrorMessage(null);
-    setSuccessMessage(null);
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'pdf' && ext !== 'txt') {
+      const err = 'Unsupported file format. Please select a .pdf or .txt file.';
+      setErrorMessage(err);
+      addToast(err, 'error');
+      setSelectedFile(null);
+      return false;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      const err = 'File size exceeds the 5 MB limit.';
+      setErrorMessage(err);
+      addToast(err, 'error');
+      setSelectedFile(null);
+      return false;
+    }
+    setSelectedFile(file);
+    return true;
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (ext !== 'pdf' && ext !== 'txt') {
-        setErrorMessage('Unsupported file format. Please select a .pdf or .txt file.');
-        setSelectedFile(null);
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        setErrorMessage('File size exceeds the 5 MB limit.');
-        setSelectedFile(null);
-        return;
-      }
-      setSelectedFile(file);
+      validateAndSelectFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      validateAndSelectFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -92,12 +136,12 @@ export const ResumesPage: React.FC = () => {
 
     setIsUploading(true);
     setErrorMessage(null);
-    setSuccessMessage(null);
 
     try {
       const created = await uploadResumeFile(selectedFile);
-      setSuccessMessage(
-        `Successfully ingested "${created.filename}" (${created.raw_text.length} characters extracted).`
+      addToast(
+        `Successfully ingested "${created.filename}" (${created.raw_text.length.toLocaleString()} characters extracted).`,
+        'success'
       );
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -105,30 +149,27 @@ export const ResumesPage: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed.';
       setErrorMessage(msg);
+      addToast(msg, 'error');
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) {
-      return;
-    }
+  const confirmDeleteResume = async () => {
+    if (!deletingResume) return;
 
-    setDeletingId(id);
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
+    setIsDeleting(true);
     try {
-      await deleteResumeById(id);
-      setSuccessMessage(`Resume "${name}" deleted.`);
-      setResumes((prev) => prev.filter((r) => r.id !== id));
-      if (activeResume?.id === id) setActiveResume(null);
+      await deleteResumeById(deletingResume.id);
+      addToast(`Resume "${deletingResume.name}" deleted.`, 'success');
+      setResumes((prev) => prev.filter((r) => r.id !== deletingResume.id));
+      if (activeResume?.id === deletingResume.id) setActiveResume(null);
+      setDeletingResume(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Delete failed.';
-      setErrorMessage(msg);
+      addToast(msg, 'error');
     } finally {
-      setDeletingId(null);
+      setIsDeleting(false);
     }
   };
 
@@ -141,7 +182,7 @@ export const ResumesPage: React.FC = () => {
       setIsCopied(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to retrieve resume text.';
-      setErrorMessage(msg);
+      addToast(msg, 'error');
     } finally {
       setIsFetchingDetail(false);
     }
@@ -151,26 +192,26 @@ export const ResumesPage: React.FC = () => {
     if (!activeResume) return;
     navigator.clipboard.writeText(activeResume.raw_text);
     setIsCopied(true);
+    addToast('Extracted resume text copied to clipboard', 'info', 2000);
     setTimeout(() => setIsCopied(false), 2000);
   };
 
   const handleOpenIntelligence = async (id: string, name: string) => {
     setParsingResumeId(id);
     setActiveProfileFilename(name);
-    setErrorMessage(null);
     try {
-      // Check if already parsed, or parse automatically
       let profile: ParsedResumeResponse;
       try {
         profile = await fetchParsedResume(id);
       } catch {
         // Not yet parsed, run parse
         profile = await parseResume(id);
+        addToast('Structured intelligence extracted from resume', 'success');
       }
       setActiveParsedProfile(profile);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to extract structured intelligence.';
-      setErrorMessage(msg);
+      addToast(msg, 'error');
     } finally {
       setParsingResumeId(null);
     }
@@ -182,37 +223,42 @@ export const ResumesPage: React.FC = () => {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
+  const filteredResumes = resumes.filter((r) =>
+    r.filename.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-6 pb-12 max-w-6xl mx-auto">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#21262d] pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">
               Resume Vault & Ingestion
-            </h2>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-              Phase 2A Live
-            </span>
+            </h1>
+            <Badge variant="teal" icon={<CheckCircle2 className="h-3 w-3" />}>
+              Active Vault
+            </Badge>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Upload candidate resumes (PDF / TXT). Extracts text and stores metadata for AI matching.
+            Upload candidate resumes (PDF / TXT). Extracts text and parses skills, education, and source spans.
           </p>
         </div>
 
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={loadResumes}
-          disabled={isLoading}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-800 transition-colors self-start sm:self-auto disabled:opacity-50"
+          loading={isLoading}
+          icon={<RefreshCw className="h-3.5 w-3.5" />}
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin text-indigo-400' : ''}`} />
-          <span>Refresh</span>
-        </button>
+          Refresh
+        </Button>
       </div>
 
-      {/* Notifications */}
+      {/* Error alert if any */}
       {errorMessage && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start justify-between gap-3 shadow-sm">
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2.5">
             <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
             <span>{errorMessage}</span>
@@ -226,36 +272,32 @@ export const ResumesPage: React.FC = () => {
         </div>
       )}
 
-      {successMessage && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-            <span>{successMessage}</span>
-          </div>
-          <button
-            onClick={() => setSuccessMessage(null)}
-            className="p-1 hover:text-white transition-colors"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Upload Dropzone Card */}
-      <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 shadow-sm">
+      <div className="rounded-xl bg-[#161b22] border border-[#30363d] p-5 shadow-sm">
         <form onSubmit={handleUpload} className="space-y-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-white mb-2">
-            <FileUp className="h-4 w-4 text-indigo-400" />
-            <span>Upload New Resume</span>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <FileUp className="h-4 w-4 text-brand-400" />
+              Upload Candidate Document
+            </span>
+            <span className="text-[11px] text-slate-400 font-mono">Max 5 MB • PDF or TXT</span>
           </div>
 
           <div
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
-              selectedFile
-                ? 'border-indigo-500/60 bg-indigo-950/20'
-                : 'border-slate-800 hover:border-slate-700 bg-slate-950/40'
-            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`
+              border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-150
+              ${
+                isDragging
+                  ? 'border-brand-500 bg-brand-500/10 scale-[0.99]'
+                  : selectedFile
+                  ? 'border-brand-500/50 bg-brand-500/5'
+                  : 'border-[#30363d] hover:border-[#444c56] bg-[#0d1117]/60'
+              }
+            `}
           >
             <input
               ref={fileInputRef}
@@ -264,105 +306,139 @@ export const ResumesPage: React.FC = () => {
               onChange={handleFileChange}
               className="hidden"
             />
-            <div className="h-10 w-10 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 mx-auto flex items-center justify-center mb-3">
+
+            <div className="h-11 w-11 rounded-xl bg-[#21262d] border border-[#30363d] text-brand-400 mx-auto flex items-center justify-center mb-3">
               <Upload className="h-5 w-5" />
             </div>
 
             {selectedFile ? (
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-200">
-                  {selectedFile.name}
-                </p>
-                <p className="text-xs text-indigo-400 font-mono">
-                  {formatFileSize(selectedFile.size)} • Click to choose a different file
+                <p className="text-sm font-bold text-slate-100">{selectedFile.name}</p>
+                <p className="text-xs text-brand-400 font-mono">
+                  {formatFileSize(selectedFile.size)} • Click or drop another file to replace
                 </p>
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="text-sm font-medium text-slate-300">
-                  Click to select or drag and drop your resume
+                <p className="text-sm font-semibold text-slate-200">
+                  Drag and drop candidate resume here, or <span className="text-brand-400 underline decoration-brand-500/40">browse files</span>
                 </p>
-                <p className="text-xs text-slate-500">
-                  Supported formats: <span className="text-slate-400 font-medium">PDF, TXT</span> (Max 5 MB)
+                <p className="text-xs text-slate-400">
+                  Text-based PDFs and plain-text files supported. Image-only PDFs utilize local Tesseract OCR.
                 </p>
               </div>
             )}
           </div>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
-            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <Info className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <span>Scanned / image-only PDFs requiring OCR are not supported in Phase 2A.</span>
+              <span>Verbatim evidence offsets are extracted automatically for matching proof.</span>
             </div>
 
-            <button
+            <Button
               type="submit"
+              variant="primary"
+              size="sm"
               disabled={!selectedFile || isUploading}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              loading={isUploading}
+              icon={<Upload className="h-3.5 w-3.5" />}
+              className="w-full sm:w-auto"
             >
-              {isUploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin text-white" />
-                  <span>Processing & Extracting...</span>
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" />
-                  <span>Upload & Ingest</span>
-                </>
-              )}
-            </button>
+              {isUploading ? 'Extracting & Ingesting...' : 'Upload & Ingest'}
+            </Button>
           </div>
         </form>
       </div>
 
       {/* Resumes List Table */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <FileText className="h-4 w-4 text-indigo-400" />
-            <span>Stored Resumes ({resumes.length})</span>
-          </h3>
+      <div className="rounded-xl bg-[#161b22] border border-[#30363d] overflow-hidden shadow-sm">
+        {/* Table Controls */}
+        <div className="p-4 border-b border-[#21262d] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <FileText className="h-4 w-4 text-brand-400" />
+              Stored Resumes
+            </h2>
+            <Badge variant="muted">{resumes.length}</Badge>
+          </div>
+
+          {resumes.length > 0 && (
+            <div className="relative w-full sm:w-64">
+              <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search resumes by name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-[#0d1117] border border-[#30363d] rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500/60"
+              />
+            </div>
+          )}
         </div>
 
         {isLoading ? (
-          <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-            <span>Loading resume vault...</span>
+          <div className="p-6">
+            <table className="w-full">
+              <tbody>
+                <TableRowSkeleton cols={5} />
+                <TableRowSkeleton cols={5} />
+                <TableRowSkeleton cols={5} />
+              </tbody>
+            </table>
           </div>
         ) : resumes.length === 0 ? (
-          <div className="rounded-xl bg-slate-900/40 border border-slate-800/80 p-10 text-center space-y-2">
-            <FileCode className="h-8 w-8 text-slate-600 mx-auto" />
-            <p className="text-sm font-semibold text-slate-300">No resumes stored yet</p>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Upload your first PDF or plain-text resume above to extract its structural text.
-            </p>
-          </div>
+          <EmptyState
+            variant="default"
+            title="No resumes stored yet"
+            description="Upload your first candidate resume above (PDF or TXT) to parse skills and extract evidence spans."
+            action={
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Upload className="h-3.5 w-3.5" />}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Upload Resume
+              </Button>
+            }
+          />
+        ) : filteredResumes.length === 0 ? (
+          <EmptyState
+            variant="search"
+            title="No matching resumes"
+            description={`No resumes found matching "${searchQuery}".`}
+            action={
+              <Button variant="ghost" size="xs" onClick={() => setSearchQuery('')}>
+                Clear Filter
+              </Button>
+            }
+          />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/80 shadow-sm">
+          <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-medium">
+                <tr className="border-b border-[#21262d] bg-[#0d1117]/60 text-slate-400 font-semibold uppercase text-[10px] tracking-wider">
                   <th className="py-3 px-4">Filename</th>
-                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Format</th>
                   <th className="py-3 px-4">Size</th>
-                  <th className="py-3 px-4">Date Uploaded</th>
+                  <th className="py-3 px-4">Uploaded</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {resumes.map((resume) => (
-                  <tr key={resume.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3.5 px-4 font-semibold text-white flex items-center gap-2.5">
-                      <FileText className="h-4 w-4 text-indigo-400 shrink-0" />
+              <tbody className="divide-y divide-[#21262d] text-slate-300">
+                {filteredResumes.map((resume) => (
+                  <tr key={resume.id} className="hover:bg-[#1c2128]/40 transition-colors">
+                    <td className="py-3.5 px-4 font-semibold text-slate-100 flex items-center gap-2.5">
+                      <FileText className="h-4 w-4 text-brand-400 shrink-0" />
                       <span className="truncate max-w-xs">{resume.filename}</span>
                     </td>
                     <td className="py-3.5 px-4">
                       <span
-                        className={`uppercase text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        className={`uppercase text-[10px] font-bold px-2 py-0.5 rounded border ${
                           resume.file_type === 'pdf'
-                            ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                            : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                            ? 'bg-rose-500/10 text-rose-300 border-rose-500/25'
+                            : 'bg-brand-500/10 text-brand-300 border-brand-500/25'
                         }`}
                       >
                         {resume.file_type}
@@ -374,41 +450,38 @@ export const ResumesPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-slate-400">
                       {new Date(resume.created_at).toLocaleDateString()} {new Date(resume.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className="py-3.5 px-4 text-right space-x-2">
-                      <button
+                    <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                      {/* Intelligence action */}
+                      <Button
+                        variant="secondary"
+                        size="xs"
                         onClick={() => handleOpenIntelligence(resume.id, resume.filename)}
-                        disabled={parsingResumeId === resume.id}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-medium border border-indigo-500/30 transition-colors disabled:opacity-50"
+                        loading={parsingResumeId === resume.id}
+                        icon={<Sparkles className="h-3 w-3 text-brand-400" />}
                       >
-                        {parsingResumeId === resume.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />
-                        ) : (
-                          <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-                        )}
-                        <span>Intelligence</span>
-                      </button>
+                        Intelligence
+                      </Button>
 
-                      <button
+                      {/* Inspect Raw Text */}
+                      <Button
+                        variant="ghost"
+                        size="xs"
                         onClick={() => handleInspect(resume.id)}
                         disabled={isFetchingDetail}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700/80 transition-colors"
+                        icon={<Eye className="h-3 w-3" />}
                       >
-                        <Eye className="h-3.5 w-3.5 text-indigo-400" />
-                        <span>Inspect Text</span>
-                      </button>
+                        Inspect
+                      </Button>
 
-                      <button
-                        onClick={() => handleDelete(resume.id, resume.filename)}
-                        disabled={deletingId === resume.id}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium border border-rose-500/30 transition-colors disabled:opacity-50"
+                      {/* Delete */}
+                      <Button
+                        variant="danger"
+                        size="xs"
+                        onClick={() => setDeletingResume({ id: resume.id, name: resume.filename })}
+                        icon={<Trash2 className="h-3 w-3" />}
                       >
-                        {deletingId === resume.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-400" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5 text-rose-400" />
-                        )}
-                        <span>Delete</span>
-                      </button>
+                        Delete
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -418,73 +491,52 @@ export const ResumesPage: React.FC = () => {
         )}
       </div>
 
-      {/* Raw Text Inspection Modal */}
+      {/* Raw Extracted Text Modal */}
       {activeResume && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 flex items-center justify-center">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-base truncate max-w-md">
-                    {activeResume.filename}
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    {formatFileSize(activeResume.file_size)} • {activeResume.raw_text.split(/\s+/).filter(Boolean).length} words • {activeResume.raw_text.length} characters
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyText}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
-                >
-                  {isCopied ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                      <span className="text-emerald-400">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5 text-slate-400" />
-                      <span>Copy Text</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setActiveResume(null)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 overflow-y-auto flex-1 bg-slate-950/70 font-mono text-xs leading-relaxed text-slate-300 whitespace-pre-wrap selection:bg-indigo-500 selection:text-white">
-              {activeResume.raw_text}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-3 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-              <span>Resume ID: <code className="text-slate-400">{activeResume.id}</code></span>
-              <button
-                onClick={() => setActiveResume(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors"
-              >
+        <Modal
+          isOpen={true}
+          onClose={() => setActiveResume(null)}
+          title={activeResume.filename}
+          subtitle={`${formatFileSize(activeResume.file_size)} • ${activeResume.raw_text.split(/\s+/).filter(Boolean).length.toLocaleString()} words • ${activeResume.raw_text.length.toLocaleString()} characters`}
+          size="xl"
+          headerActions={
+            <Button
+              variant="secondary"
+              size="xs"
+              onClick={handleCopyText}
+              icon={isCopied ? <Check className="h-3.5 w-3.5 text-teal-400" /> : <Copy className="h-3.5 w-3.5 text-slate-400" />}
+            >
+              {isCopied ? 'Copied!' : 'Copy Text'}
+            </Button>
+          }
+          footer={
+            <div className="flex items-center justify-between text-xs text-slate-400 w-full">
+              <span>Resume ID: <code className="text-slate-300 font-mono">{activeResume.id}</code></span>
+              <Button variant="secondary" size="xs" onClick={() => setActiveResume(null)}>
                 Close
-              </button>
+              </Button>
             </div>
+          }
+        >
+          <div className="p-6 bg-[#0d1117] font-mono text-xs leading-relaxed text-slate-300 whitespace-pre-wrap select-text max-h-[60vh] overflow-y-auto">
+            {activeResume.raw_text}
           </div>
-        </div>
+        </Modal>
       )}
 
-      {/* Structured Resume Intelligence Modal (Phase 2B) */}
+      {/* Safe Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deletingResume !== null}
+        title="Delete Resume"
+        description={`Are you sure you want to permanently delete "${deletingResume?.name}"? Any match reports referencing this candidate resume will be orphaned.`}
+        confirmLabel="Delete Resume"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={confirmDeleteResume}
+        onCancel={() => setDeletingResume(null)}
+      />
+
+      {/* Structured Resume Intelligence Modal */}
       {activeParsedProfile && (
         <ResumeIntelligenceModal
           profile={activeParsedProfile}
