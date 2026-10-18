@@ -16,6 +16,7 @@ import {
 import { MatchReportResponse } from '../types/match';
 import { createMatchReport } from '../services/matchService';
 import { ScoreRing, Badge } from './ui';
+import { SemanticEvidenceExplorer } from './SemanticEvidenceExplorer';
 
 interface Props {
   report: MatchReportResponse;
@@ -32,7 +33,9 @@ export const MatchReportModal: React.FC<Props> = ({
   onClose,
   onReportUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'required' | 'preferred' | 'experience' | 'disclosures'>('required');
+  const [activeTab, setActiveTab] = useState<
+    'required' | 'preferred' | 'experience' | 'semantic' | 'disclosures'
+  >('required');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [activeEvidence, setActiveEvidence] = useState<{
     skillName: string;
@@ -208,6 +211,23 @@ export const MatchReportModal: React.FC<Props> = ({
           >
             <Briefcase className="h-3.5 w-3.5" />
             <span>Experience & Credentials</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('semantic')}
+            className={`pb-2.5 px-3 font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'semantic'
+                ? 'border-brand-500 text-brand-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+            id="tab-semantic-evidence"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+            <span>Semantic Evidence Explorer</span>
+            {report.missing_skills.length > 0 && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                {report.missing_skills.length} gaps
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('disclosures')}
@@ -539,6 +559,19 @@ export const MatchReportModal: React.FC<Props> = ({
                   </li>
                 </ul>
               </div>
+            </div>
+          )}
+
+          {/* TAB 5: SEMANTIC EVIDENCE EXPLORER */}
+          {activeTab === 'semantic' && (
+            <div className="space-y-4">
+              <SemanticEvidenceExplorer
+                matchId={report.id}
+                missingSkills={report.missing_skills.map((s) => ({
+                  skill_name: s.skill_name,
+                  requirement_level: s.requirement_level,
+                }))}
+              />
             </div>
           )}
         </div>

@@ -1,14 +1,21 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.match_report import MatchReport
+from app.models.resume import Resume
 from app.schemas.match import (
     MatchReportListResponse,
     MatchReportResponse,
     MatchRequest,
 )
+from app.schemas.semantic_evidence import (
+    SemanticEvidenceRequest,
+    SemanticEvidenceResponse,
+)
 from app.services.matching.service import MatchService
+from app.services.semantic.evidence_finder import SemanticEvidenceFinder
 
 router = APIRouter()
 
@@ -84,3 +91,64 @@ def delete_match_report(
 ) -> None:
     """Delete a match report by ID."""
     MatchService.delete_match_report(db=db, match_id=match_id)
+
+
+@router.post(
+    "/{match_id}/semantic-evidence",
+    response_model=SemanticEvidenceResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve Semantic Evidence Passages for a Match Report",
+    description=(
+        "Retrieves semantically relevant textual passages from the candidate resume associated "
+        "with this match report for a specific job requirement query. Uses local all-MiniLM-L6-v2 embeddings. "
+        "Cosine similarity serves as a ranking signal, not a qualification probability."
+    ),
+)
+def get_semantic_evidence_for_match(
+    match_id: str,
+    payload: SemanticEvidenceRequest,
+    db: Session = Depends(get_db),
+) -> SemanticEvidenceResponse:
+    """Retrieve semantically relevant candidate resume passages for a requirement."""
+    # 1. Fetch match report and verify relationship
+    match_report = db.get(MatchReport, match_id)
+    if not match_report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Match report with ID '{match_id}' not found.",
+        )
+
+    # 2. Fetch associated resume
+    resume = db.get(Resume, match_report.resume_id)
+    if not resume:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Associated candidate resume '{match_report.resume_id}' not found.",
+        )
+
+    # 3. Retrieve evidence passages safely
+    try:
+        return SemanticEvidenceFinder.find_evidence(
+            raw_resume_text=resume.raw_text,
+            requirement_text=payload.requirement_text,
+            match_id=match_id,
+            resume_id=resume.id,
+            top_k=payload.top_k,
+            min_similarity=payload.min_similarity,
+        )
+    except FileNotFoundError as err:
+        # Hide internal disk paths, provide clear actionable message
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Local semantic embedding model is not installed or configured on the server.",
+        ) from err
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(val_err),
+        ) from val_err
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to compute semantic evidence retrieval.",
+        ) from exc

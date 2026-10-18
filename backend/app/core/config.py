@@ -71,5 +71,39 @@ class Settings(BaseSettings):
             f"@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
+    # Machine Learning / Embedding Model configuration
+    MODELS_CACHE_DIR: Union[str, None] = None
+
+    @property
+    def model_snapshot_path(self) -> Union[str, None]:
+        """Resolve the exact snapshot directory for all-MiniLM-L6-v2."""
+        import os
+        from pathlib import Path
+
+        # 1. If explicit env variable is set, check it
+        candidate_roots = []
+        if self.MODELS_CACHE_DIR:
+            candidate_roots.append(Path(self.MODELS_CACHE_DIR))
+
+        # 2. Check relative to repository root and backend directory
+        backend_dir = Path(__file__).resolve().parent.parent.parent
+        repo_root = backend_dir.parent
+        candidate_roots.extend([
+            repo_root / "models_cache",
+            backend_dir / "models_cache",
+            Path("models_cache"),
+        ])
+
+        model_rel_path = Path("models--sentence-transformers--all-MiniLM-L6-v2") / "snapshots"
+        for root in candidate_roots:
+            snapshots_dir = root / model_rel_path
+            if snapshots_dir.is_dir():
+                # Locate snapshot folder containing model.safetensors or config.json
+                for snapshot in snapshots_dir.iterdir():
+                    if snapshot.is_dir() and (snapshot / "model.safetensors").is_file():
+                        return str(snapshot.resolve())
+
+        return None
+
 
 settings = Settings()
