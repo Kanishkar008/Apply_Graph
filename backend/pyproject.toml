@@ -30,5 +30,10 @@ dependencies = [
     "sentence-transformers>=2.7.0,<3.0.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["alembic*", "tests*"]
+
 [tool.fastapi]
 entrypoint = "app.main:app"
