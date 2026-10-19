@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "applygraph-backend"
 version = "0.1.0"
 description = "ApplyGraph - Intelligent Job-Resume Alignment Engine"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "fastapi>=0.110.0,<1.0.0",
     "fastapi-cli>=0.0.16",
