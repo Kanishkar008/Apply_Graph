@@ -156,15 +156,16 @@ class MatchingEngine:
             skill_name = job_skill.name
             skill_lower = skill_name.lower()
             is_preferred = (job_skill.requirement_level == RequirementLevel.PREFERRED)
+            is_ambiguous = (job_skill.requirement_level == RequirementLevel.AMBIGUOUS)
 
-            if job_skill.requirement_level == RequirementLevel.AMBIGUOUS:
+            if is_ambiguous:
                 provisional_reasons.append(
                     f"Ambiguous requirement level for '{skill_name}' in job description."
                 )
 
             if is_preferred:
                 total_pref_count += 1
-            else:
+            elif not is_ambiguous:
                 total_req_count += 1
 
             # Validate job source span against job_raw_text
@@ -193,7 +194,7 @@ class MatchingEngine:
                 )
                 if is_preferred:
                     matched_pref_count += 1.0
-                else:
+                elif not is_ambiguous:
                     matched_req_count += 1.0
                 continue
 
@@ -213,7 +214,7 @@ class MatchingEngine:
                 )
                 if is_preferred:
                     matched_pref_count += 1.0
-                else:
+                elif not is_ambiguous:
                     matched_req_count += 1.0
                 continue
 
@@ -249,25 +250,41 @@ class MatchingEngine:
                 # Partial credit (0.5) for adjacent framework
                 if is_preferred:
                     matched_pref_count += 0.5
-                else:
+                elif not is_ambiguous:
                     matched_req_count += 0.5
                 continue
 
             # No evidence found
-            missing.append(
-                MissingSkillItem(
-                    skill_name=skill_name,
-                    category=job_skill.category,
-                    requirement_level=job_skill.requirement_level,
-                    status=SkillMatchStatus.MISSING_EVIDENCE,
-                    years_required=job_skill.years_required,
-                    job_source=valid_job_source,
-                    explanation=(
-                        f"No verified evidence of '{skill_name}' was found in candidate profile. "
-                        "Treated as missing evidence, not proof of inability."
-                    ),
+            if is_ambiguous:
+                missing.append(
+                    MissingSkillItem(
+                        skill_name=skill_name,
+                        category=job_skill.category,
+                        requirement_level=job_skill.requirement_level,
+                        status=SkillMatchStatus.AMBIGUOUS_REQUIREMENT,
+                        years_required=job_skill.years_required,
+                        job_source=valid_job_source,
+                        explanation=(
+                            f"Ambiguous requirement level for '{skill_name}' in job description without sufficient context. "
+                            "Excluded from verified scoring to avoid penalizing candidate."
+                        ),
+                    )
                 )
-            )
+            else:
+                missing.append(
+                    MissingSkillItem(
+                        skill_name=skill_name,
+                        category=job_skill.category,
+                        requirement_level=job_skill.requirement_level,
+                        status=SkillMatchStatus.MISSING_EVIDENCE,
+                        years_required=job_skill.years_required,
+                        job_source=valid_job_source,
+                        explanation=(
+                            f"No verified evidence of '{skill_name}' was found in candidate profile. "
+                            "Treated as missing evidence, not proof of inability."
+                        ),
+                    )
+                )
 
         # Calculate percentage scores
         req_score = 100.0 if total_req_count == 0 else (matched_req_count / total_req_count) * 100.0

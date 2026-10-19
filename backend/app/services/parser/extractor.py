@@ -18,7 +18,12 @@ from app.schemas.resume_parsed import (
     ParsedSkill,
     SourceSpan,
 )
-from app.services.parser.skills_taxonomy import SKILLS_TAXONOMY
+from app.services.parser.skills_taxonomy import (
+    ALLOWLISTED_SINGLE_LETTER_TECH,
+    SKILLS_TAXONOMY,
+    has_single_letter_skill_context,
+    is_ordinary_prose_single_letter,
+)
 
 
 def find_verifiable_span(raw_text: str, snippet: str, search_start: int = 0) -> Optional[SourceSpan]:
@@ -210,6 +215,21 @@ class ResumeExtractor:
                         # Find the sentence or line context containing this skill
                         start_idx = base_offset + match.start()
                         end_idx = base_offset + match.end()
+
+                        # Context-aware validation for single-letter terms (e.g. R, C)
+                        if len(skill_name) == 1:
+                            if skill_name not in ALLOWLISTED_SINGLE_LETTER_TECH:
+                                continue
+                            if is_ordinary_prose_single_letter(skill_name, raw_text, start_idx, end_idx):
+                                continue
+                            in_skills_section = (
+                                "skills" in sections
+                                and sections["skills"].start <= start_idx < sections["skills"].end
+                            )
+                            if not in_skills_section and not has_single_letter_skill_context(
+                                skill_name, raw_text, start_idx, end_idx
+                            ):
+                                continue
 
                         # Extract surrounding line as source evidence snippet
                         line_start = raw_text.rfind("\n", 0, start_idx)

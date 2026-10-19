@@ -68,11 +68,17 @@ export const MatchReportModal: React.FC<Props> = ({
     }
   };
 
-  const requiredMatched = report.matched_skills.filter((s) => s.requirement_level !== 'preferred');
-  const requiredMissing = report.missing_skills.filter((s) => s.requirement_level !== 'preferred');
+  const requiredMatched = report.matched_skills.filter((s) => s.requirement_level === 'required');
+  const requiredMissing = report.missing_skills.filter((s) => s.requirement_level === 'required');
 
   const preferredMatched = report.matched_skills.filter((s) => s.requirement_level === 'preferred');
   const preferredMissing = report.missing_skills.filter((s) => s.requirement_level === 'preferred');
+
+  const ambiguousMatched = report.matched_skills.filter((s) => s.requirement_level === 'ambiguous');
+  const ambiguousMissing = report.missing_skills.filter((s) => s.requirement_level === 'ambiguous');
+  const verifiedMissing = report.missing_skills.filter(
+    (s) => s.requirement_level !== 'ambiguous' && s.status !== 'ambiguous_requirement'
+  );
 
   const bd = report.score_breakdown;
 
@@ -177,6 +183,32 @@ export const MatchReportModal: React.FC<Props> = ({
           </div>
         )}
 
+        {/* Ambiguous Requirements Banner */}
+        {(ambiguousMatched.length > 0 || ambiguousMissing.length > 0) && (
+          <div className="mx-6 mt-3 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs space-y-2">
+            <div className="flex items-center gap-2 font-bold text-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              <span>Ambiguous Requirements ({ambiguousMatched.length + ambiguousMissing.length}) — Excluded from Scoring</span>
+            </div>
+            <p className="text-amber-200/80 text-[11px] leading-relaxed">
+              The following terms appeared without sufficient language or tooling context in the job description. They are excluded from verified scoring and missing-competency search to avoid unfairly penalizing candidates:
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {[...ambiguousMatched, ...ambiguousMissing].map((s, idx) => (
+                <span
+                  key={idx}
+                  className="px-2.5 py-1 rounded-md bg-[#21262d] border border-amber-500/30 text-amber-200 text-[11px] flex items-center gap-1.5"
+                >
+                  <span className="font-bold">{s.skill_name}</span>
+                  <span className="text-[10px] text-amber-300/70">
+                    ({s.status === 'exact_match' || s.status === 'related_skill' ? 'Matched in Profile' : 'Unconfirmed in Profile'})
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Navigation Tabs */}
         <div className="flex border-b border-[#21262d] px-6 mt-3 gap-2 overflow-x-auto text-xs">
           <button
@@ -223,9 +255,9 @@ export const MatchReportModal: React.FC<Props> = ({
           >
             <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
             <span>Semantic Evidence Explorer</span>
-            {report.missing_skills.length > 0 && (
+            {verifiedMissing.length > 0 && (
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                {report.missing_skills.length} gaps
+                {verifiedMissing.length} gaps
               </span>
             )}
           </button>
@@ -567,7 +599,7 @@ export const MatchReportModal: React.FC<Props> = ({
             <div className="space-y-4">
               <SemanticEvidenceExplorer
                 matchId={report.id}
-                missingSkills={report.missing_skills.map((s) => ({
+                missingSkills={verifiedMissing.map((s) => ({
                   skill_name: s.skill_name,
                   requirement_level: s.requirement_level,
                 }))}

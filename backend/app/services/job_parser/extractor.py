@@ -26,7 +26,12 @@ from app.schemas.job_parsed import (
     RequirementLevel,
 )
 from app.schemas.resume_parsed import FactOrigin, SourceSpan
-from app.services.parser.skills_taxonomy import SKILLS_TAXONOMY
+from app.services.parser.skills_taxonomy import (
+    ALLOWLISTED_SINGLE_LETTER_TECH,
+    SKILLS_TAXONOMY,
+    has_single_letter_skill_context,
+    is_ordinary_prose_single_letter,
+)
 
 
 class JobExtractor:
@@ -189,6 +194,14 @@ class JobExtractor:
             char_end = best_match.end()
             source_text = raw_text[char_start:char_end]
 
+            # Context-aware validation for single-letter terms (e.g. R, C)
+            is_single_letter = len(canonical_name) == 1
+            if is_single_letter:
+                if canonical_name not in ALLOWLISTED_SINGLE_LETTER_TECH:
+                    continue
+                if is_ordinary_prose_single_letter(canonical_name, raw_text, char_start, char_end):
+                    continue
+
             # Determine line context
             line_start = raw_text.rfind("\n", 0, char_start)
             line_start = 0 if line_start == -1 else line_start + 1
@@ -197,6 +210,12 @@ class JobExtractor:
             line_text = raw_text[line_start:line_end].lower()
 
             section_type = cls._get_section_type_at_offset(char_start, sections)
+
+            has_single_context = (
+                has_single_letter_skill_context(canonical_name, raw_text, char_start, char_end, section_type)
+                if is_single_letter
+                else True
+            )
 
             # Check explicit in-line modifier keywords
             has_pref_modifier = bool(
@@ -207,7 +226,10 @@ class JobExtractor:
             )
 
             # Determine requirement level
-            if has_pref_modifier:
+            if is_single_letter and not has_single_context:
+                # Standalone single-letter tech without confirming context -> marked AMBIGUOUS
+                req_level = RequirementLevel.AMBIGUOUS
+            elif has_pref_modifier:
                 req_level = RequirementLevel.PREFERRED
             elif has_req_modifier:
                 req_level = RequirementLevel.REQUIRED

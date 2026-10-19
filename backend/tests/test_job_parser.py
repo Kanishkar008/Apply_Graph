@@ -197,3 +197,85 @@ async def test_job_parse_api_and_correction_flow():
 
         finally:
             await client.delete(f"/api/v1/jobs/{job_id}")
+
+
+def test_single_letter_skills_ordinary_prose_rejection():
+    """Verify single-letter words in ordinary prose (R&D, Vitamin C, Schedule C, outline bullets) are not extracted as skills."""
+    # 1. R&D / R & D
+    rd_jd = """Software Trainee - R&D Department
+Tech Solutions Inc.
+Responsibilities:
+- Collaborate with the R & D engineering team on prototype testing.
+"""
+    parsed = JobExtractor.parse_job_text(rd_jd)
+    skills = [s.name for s in parsed.required_skills + parsed.preferred_skills]
+    assert "R" not in skills
+
+    # 2. Outline bullets (R., C.)
+    bullet_jd = """Operations Associate
+Key Tasks:
+R. Manage stakeholder communication.
+C. Coordinate logistics and delivery schedules.
+"""
+    parsed = JobExtractor.parse_job_text(bullet_jd)
+    skills = [s.name for s in parsed.required_skills + parsed.preferred_skills]
+    assert "R" not in skills
+    assert "C" not in skills
+
+    # 3. Ordinary prose phrases (Vitamin C, Schedule C, Section R)
+    prose_jd = """Administrative Assistant
+Requirements:
+- Experience filing Schedule C tax forms.
+- Knowledge of Vitamin C manufacturing compliance.
+- Refer to Section R for safety protocols.
+"""
+    parsed = JobExtractor.parse_job_text(prose_jd)
+    skills = [s.name for s in parsed.required_skills + parsed.preferred_skills]
+    assert "R" not in skills
+    assert "C" not in skills
+
+
+def test_single_letter_skills_genuine_requirements_preserved():
+    """Verify legitimate requirements like 'R programming', 'R language', 'C programming', and 'C++' are preserved."""
+    jd = """Data Scientist & Systems Developer
+Requirements:
+- 3+ years of R programming experience.
+- Proficiency in R language for statistical modeling.
+- Strong C programming background.
+- Hands-on experience with C++.
+Preferred:
+- Experience with Python and R for data analysis.
+"""
+    parsed = JobExtractor.parse_job_text(jd)
+    req_skills = {s.name: s for s in parsed.required_skills}
+    pref_skills = {s.name: s for s in parsed.preferred_skills}
+
+    # R is extracted as REQUIRED with proper provenance
+    assert "R" in req_skills
+    assert req_skills["R"].requirement_level == RequirementLevel.REQUIRED
+    assert req_skills["R"].category == "language"
+
+    # C is extracted as REQUIRED
+    assert "C" in req_skills
+    assert req_skills["C"].requirement_level == RequirementLevel.REQUIRED
+    assert req_skills["C"].category == "language"
+
+    # C++ is extracted as REQUIRED
+    assert "C++" in req_skills
+    assert req_skills["C++"].requirement_level == RequirementLevel.REQUIRED
+
+
+def test_standalone_r_without_context_marked_ambiguous():
+    """Verify standalone 'R' without clarifying context is marked as AMBIGUOUS."""
+    jd = """Software Trainee
+Requirements:
+- Quick learner
+- R
+- Good communication skills
+"""
+    parsed = JobExtractor.parse_job_text(jd)
+    all_skills = {s.name: s for s in parsed.required_skills + parsed.preferred_skills}
+
+    assert "R" in all_skills
+    r_skill = all_skills["R"]
+    assert r_skill.requirement_level == RequirementLevel.AMBIGUOUS

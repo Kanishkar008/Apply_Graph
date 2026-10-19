@@ -287,3 +287,84 @@ async def test_matching_api_flow_and_cascade_deletion():
 
         finally:
             await client.delete(f"/api/v1/jobs/{job_id}")
+
+
+def test_ambiguous_skill_does_not_penalize_mandatory_score():
+    """Verify ambiguous skills (such as uncontextualized 'R') are excluded from verified mandatory score."""
+    # Job has ambiguous skill R, preferred skill Go, and required Bachelor's degree
+    job = ParsedJobData(
+        title="Software Trainee",
+        required_skills=[
+            ParsedJobSkill(name="R", requirement_level=RequirementLevel.AMBIGUOUS),
+        ],
+        preferred_skills=[
+            ParsedJobSkill(name="Go", requirement_level=RequirementLevel.PREFERRED),
+        ],
+        experience_requirements=[],
+        education_requirements=[
+            ParsedJobEducationRequirement(degree_level="Bachelor's", requirement_level=RequirementLevel.REQUIRED),
+        ],
+    )
+
+    # Candidate has Go and Bachelor's degree, but lacks R. Experience is unscored.
+    resume = ParsedResumeData(
+        skills=[ParsedSkill(name="Go")],
+        work_experience=[],
+        education=[ParsedEducation(degree="Bachelor of Science in Computer Science")],
+    )
+
+    result = MatchingEngine.evaluate_match(
+        parsed_resume=resume,
+        parsed_job=job,
+        resume_raw_text="Go Bachelor of Science",
+        job_raw_text="R Go Bachelor",
+    )
+
+    breakdown = result["score_breakdown"]
+    # R is ambiguous, so verified required skills count is 0 -> required_skills_score is 100.0 (not penalized to 0%)
+    assert breakdown["required_skills_score"] == 100.0
+    assert breakdown["preferred_skills_score"] == 100.0
+    assert breakdown["education_score"] == 100.0
+    assert breakdown["experience_score"] is None
+
+    # Weights when experience is unscored: w_req=0.65, w_pref=0.20, w_edu=0.15
+    assert breakdown["required_skills_weight"] == 0.65
+    assert breakdown["preferred_skills_weight"] == 0.20
+    assert breakdown["education_weight"] == 0.15
+
+    # Overall score = 0.65*100 + 0.20*100 + 0.15*100 = 100.0 (not 35.0!)
+    assert result["overall_score"] == 100.0
+    assert result["is_provisional"] is True
+    assert any("Ambiguous requirement level for 'R'" in r for r in result["provisional_reasons"])
+
+    # Missing skills contains R marked as AMBIGUOUS_REQUIREMENT
+    missing = result["missing_skills"]
+    assert len(missing) == 1
+    assert missing[0]["skill_name"] == "R"
+    assert missing[0]["status"] == SkillMatchStatus.AMBIGUOUS_REQUIREMENT.value
+    assert missing[0]["requirement_level"] == RequirementLevel.AMBIGUOUS.value
+
+
+def test_scoring_formula_and_discrepancy_verification():
+    """Verify mathematical consistency of the 35% discrepancy reported in production.
+
+    When Mandatory was 0.0%, Preferred 100.0%, Education 100.0%, and Experience unscored:
+    Dynamic weights: w_req = 0.65, w_pref = 0.20, w_edu = 0.15.
+    Composite formula: (0.65 * 0) + (0.20 * 100) + (0.15 * 100) = 0 + 20 + 15 = 35.0%.
+    This proves the weights and displayed percentages agreed with the composite formula.
+    """
+    overall, breakdown = MatchingEngine._compute_composite_score(
+        req_score=0.0,
+        pref_score=100.0,
+        exp_score=None,
+        edu_score=100.0,
+    )
+    assert breakdown.required_skills_score == 0.0
+    assert breakdown.required_skills_weight == 0.65
+    assert breakdown.preferred_skills_score == 100.0
+    assert breakdown.preferred_skills_weight == 0.20
+    assert breakdown.education_score == 100.0
+    assert breakdown.education_weight == 0.15
+    assert breakdown.experience_score is None
+    assert breakdown.experience_weight == 0.0
+    assert overall == 35.0
