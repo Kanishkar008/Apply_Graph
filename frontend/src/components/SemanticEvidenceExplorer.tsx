@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   Search,
@@ -18,22 +18,44 @@ import {
 } from '../types/semantic';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
+import { isAmbiguousSkill } from '../utils/skillFilters';
+
+export interface ExplorerMissingSkillItem {
+  skill_name: string;
+  category?: string | null;
+  requirement_level?: string | null;
+  status?: string | null;
+}
 
 interface SemanticEvidenceExplorerProps {
   matchId: string;
-  missingSkills?: Array<{ skill_name: string; requirement_level?: string }>;
+  missingSkills?: ExplorerMissingSkillItem[];
 }
 
 export const SemanticEvidenceExplorer: React.FC<SemanticEvidenceExplorerProps> = ({
   matchId,
   missingSkills = [],
 }) => {
-  const verifiedMissingSkills = missingSkills.filter(
-    (s) => s.requirement_level !== 'ambiguous'
+  const eligibleMissingSkills = useMemo(
+    () => missingSkills.filter((s) => !isAmbiguousSkill(s)),
+    [missingSkills]
   );
   const [queryText, setQueryText] = useState<string>(
-    verifiedMissingSkills.length > 0 ? verifiedMissingSkills[0].skill_name : ''
+    eligibleMissingSkills.length > 0 ? eligibleMissingSkills[0].skill_name : ''
   );
+
+  useEffect(() => {
+    if (eligibleMissingSkills.length > 0) {
+      setQueryText((prev) => {
+        if (!prev || !eligibleMissingSkills.some((s) => s.skill_name === prev)) {
+          return eligibleMissingSkills[0].skill_name;
+        }
+        return prev;
+      });
+    } else {
+      setQueryText('');
+    }
+  }, [eligibleMissingSkills]);
   const [topK, setTopK] = useState<number>(5);
   const [minSimilarity, setMinSimilarity] = useState<number>(0.25);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -101,13 +123,13 @@ export const SemanticEvidenceExplorer: React.FC<SemanticEvidenceExplorerProps> =
         </div>
 
         {/* Missing Skills Quick-Pills */}
-        {verifiedMissingSkills.length > 0 && (
+        {eligibleMissingSkills.length > 0 && (
           <div className="space-y-1.5 pt-1">
             <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
               <span>Quick-Search Missing Competencies:</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {verifiedMissingSkills.map((skill, idx) => (
+              {eligibleMissingSkills.map((skill, idx) => (
                 <button
                   key={idx}
                   type="button"

@@ -17,6 +17,12 @@ import { MatchReportResponse } from '../types/match';
 import { createMatchReport } from '../services/matchService';
 import { ScoreRing, Badge } from './ui';
 import { SemanticEvidenceExplorer } from './SemanticEvidenceExplorer';
+import {
+  getAmbiguousSkills,
+  getEligibleMissingSkills,
+  getVerifiedMatchedSkills,
+  getVerifiedMissingSkillsByLevel,
+} from '../utils/skillFilters';
 
 interface Props {
   report: MatchReportResponse;
@@ -68,17 +74,15 @@ export const MatchReportModal: React.FC<Props> = ({
     }
   };
 
-  const requiredMatched = report.matched_skills.filter((s) => s.requirement_level === 'required');
-  const requiredMissing = report.missing_skills.filter((s) => s.requirement_level === 'required');
+  const requiredMatched = getVerifiedMatchedSkills(report.matched_skills, 'required');
+  const requiredMissing = getVerifiedMissingSkillsByLevel(report.missing_skills, 'required');
 
-  const preferredMatched = report.matched_skills.filter((s) => s.requirement_level === 'preferred');
-  const preferredMissing = report.missing_skills.filter((s) => s.requirement_level === 'preferred');
+  const preferredMatched = getVerifiedMatchedSkills(report.matched_skills, 'preferred');
+  const preferredMissing = getVerifiedMissingSkillsByLevel(report.missing_skills, 'preferred');
 
-  const ambiguousMatched = report.matched_skills.filter((s) => s.requirement_level === 'ambiguous');
-  const ambiguousMissing = report.missing_skills.filter((s) => s.requirement_level === 'ambiguous');
-  const verifiedMissing = report.missing_skills.filter(
-    (s) => s.requirement_level !== 'ambiguous' && s.status !== 'ambiguous_requirement'
-  );
+  const ambiguousMatched = getAmbiguousSkills(report.matched_skills);
+  const ambiguousMissing = getAmbiguousSkills(report.missing_skills);
+  const eligibleMissing = getEligibleMissingSkills(report.missing_skills);
 
   const bd = report.score_breakdown;
 
@@ -255,9 +259,9 @@ export const MatchReportModal: React.FC<Props> = ({
           >
             <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
             <span>Semantic Evidence Explorer</span>
-            {verifiedMissing.length > 0 && (
+            {eligibleMissing.length > 0 && (
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                {verifiedMissing.length} gaps
+                {eligibleMissing.length} gaps
               </span>
             )}
           </button>
@@ -599,10 +603,7 @@ export const MatchReportModal: React.FC<Props> = ({
             <div className="space-y-4">
               <SemanticEvidenceExplorer
                 matchId={report.id}
-                missingSkills={verifiedMissing.map((s) => ({
-                  skill_name: s.skill_name,
-                  requirement_level: s.requirement_level,
-                }))}
+                missingSkills={eligibleMissing}
               />
             </div>
           )}

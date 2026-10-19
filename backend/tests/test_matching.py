@@ -368,3 +368,77 @@ def test_scoring_formula_and_discrepancy_verification():
     assert breakdown.experience_score is None
     assert breakdown.experience_weight == 0.0
     assert overall == 35.0
+
+
+def test_missing_skills_ambiguous_vs_genuine_regression():
+    """Regression test: verify missing_skills filtering for ambiguous vs genuine missing competencies.
+
+    Requirement 5:
+    - Match report containing only an ambiguous 'R' requirement yields 0 explorer gaps.
+    - Match report containing both a genuine missing skill ('Docker') and an ambiguous requirement ('R')
+      yields only the genuine missing skill.
+    """
+    resume = ParsedResumeData(skills=[], work_experience=[], education=[])
+
+    # Case 1: Report containing only ambiguous R
+    job_only_ambiguous = ParsedJobData(
+        title="Software Trainee",
+        required_skills=[
+            ParsedJobSkill(name="R", requirement_level=RequirementLevel.AMBIGUOUS),
+        ],
+        preferred_skills=[],
+        experience_requirements=[],
+        education_requirements=[],
+    )
+    result1 = MatchingEngine.evaluate_match(
+        parsed_resume=resume,
+        parsed_job=job_only_ambiguous,
+        resume_raw_text="No tech mentioned",
+        job_raw_text="Requirements: R",
+    )
+    missing1 = result1["missing_skills"]
+    assert len(missing1) == 1
+    assert missing1[0]["skill_name"] == "R"
+    assert missing1[0]["requirement_level"] == RequirementLevel.AMBIGUOUS.value
+    assert missing1[0]["status"] == SkillMatchStatus.AMBIGUOUS_REQUIREMENT.value
+
+    # Filter eligible missing competencies (non-ambiguous)
+    eligible1 = [
+        s for s in missing1
+        if s["requirement_level"] != RequirementLevel.AMBIGUOUS.value
+        and s["status"] != SkillMatchStatus.AMBIGUOUS_REQUIREMENT.value
+    ]
+    # Must yield zero explorer gaps
+    assert len(eligible1) == 0
+
+    # Case 2: Report containing both genuine missing skill and ambiguous requirement
+    job_both = ParsedJobData(
+        title="Software Trainee",
+        required_skills=[
+            ParsedJobSkill(name="R", requirement_level=RequirementLevel.AMBIGUOUS),
+            ParsedJobSkill(name="Docker", requirement_level=RequirementLevel.REQUIRED),
+        ],
+        preferred_skills=[],
+        experience_requirements=[],
+        education_requirements=[],
+    )
+    result2 = MatchingEngine.evaluate_match(
+        parsed_resume=resume,
+        parsed_job=job_both,
+        resume_raw_text="No tech mentioned",
+        job_raw_text="Requirements: R, Docker",
+    )
+    missing2 = result2["missing_skills"]
+    assert len(missing2) == 2
+
+    # Filter eligible missing competencies (non-ambiguous)
+    eligible2 = [
+        s for s in missing2
+        if s["requirement_level"] != RequirementLevel.AMBIGUOUS.value
+        and s["status"] != SkillMatchStatus.AMBIGUOUS_REQUIREMENT.value
+    ]
+    # Must yield only the genuine missing skill
+    assert len(eligible2) == 1
+    assert eligible2[0]["skill_name"] == "Docker"
+    assert eligible2[0]["requirement_level"] == RequirementLevel.REQUIRED.value
+    assert eligible2[0]["status"] == SkillMatchStatus.MISSING_EVIDENCE.value
