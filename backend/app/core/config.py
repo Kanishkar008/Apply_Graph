@@ -26,26 +26,39 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://apply-graph.vercel.app",
     ]
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        default_origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://apply-graph.vercel.app",
+        ]
+        origins: List[str] = []
         if isinstance(v, str):
             v = v.strip()
-            if not v:
-                return []
-            if v.startswith("[") and v.endswith("]"):
-                try:
-                    parsed = json.loads(v)
-                    if isinstance(parsed, list):
-                        return [str(item).strip() for item in parsed]
-                except json.JSONDecodeError:
-                    pass
-            return [item.strip() for item in v.split(",") if item.strip()]
+            if v:
+                if v.startswith("[") and v.endswith("]"):
+                    try:
+                        parsed = json.loads(v)
+                        if isinstance(parsed, list):
+                            origins = [str(item).strip() for item in parsed]
+                    except json.JSONDecodeError:
+                        origins = [item.strip() for item in v.strip("[]").split(",") if item.strip()]
+                else:
+                    origins = [item.strip() for item in v.split(",") if item.strip()]
         elif isinstance(v, list):
-            return [str(item).strip() for item in v]
-        return []
+            origins = [str(item).strip() for item in v]
+
+        combined: List[str] = []
+        for origin in default_origins + origins:
+            clean = origin.rstrip("/")
+            if clean and clean not in combined:
+                combined.append(clean)
+        return combined
 
     # Database connection parameters
     POSTGRES_SERVER: str = "localhost"

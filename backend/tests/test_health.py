@@ -55,26 +55,114 @@ def test_root_endpoint(client: TestClient) -> None:
     assert "documentation" in data
 
 
-def test_cors_headers(client: TestClient) -> None:
-    """Test that CORS headers are returned for configured origin."""
-    response = client.options(
+def test_cors_headers_localhost(client: TestClient) -> None:
+    """Test that CORS headers are returned for localhost origins."""
+    for origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+        response = client.options(
+            "/api/v1/health",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == origin
+
+
+def test_cors_headers_production_origin(client: TestClient) -> None:
+    """Test that CORS headers are returned for production Vercel frontend origin."""
+    prod_origin = "https://apply-graph.vercel.app"
+
+    # Preflight OPTIONS
+    opt_resp = client.options(
         "/api/v1/health",
         headers={
-            "Origin": "http://localhost:5173",
+            "Origin": prod_origin,
             "Access-Control-Request-Method": "GET",
         },
     )
-    assert response.status_code == 200
-    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    assert opt_resp.status_code == 200
+    assert opt_resp.headers.get("access-control-allow-origin") == prod_origin
+    assert opt_resp.headers.get("access-control-allow-credentials") == "true"
+
+    # Actual GET
+    get_resp = client.get(
+        "/api/v1/health",
+        headers={"Origin": prod_origin},
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.headers.get("access-control-allow-origin") == prod_origin
+
+
+def test_cors_resumes_and_jobs_endpoints(client: TestClient) -> None:
+    """Test CORS headers on resumes and jobs endpoints for production origin."""
+    prod_origin = "https://apply-graph.vercel.app"
+
+    # Resumes preflight and GET
+    res_opt = client.options(
+        "/api/v1/resumes",
+        headers={
+            "Origin": prod_origin,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert res_opt.status_code == 200
+    assert res_opt.headers.get("access-control-allow-origin") == prod_origin
+
+    res_get = client.get("/api/v1/resumes", headers={"Origin": prod_origin})
+    assert res_get.status_code == 200
+    assert res_get.headers.get("access-control-allow-origin") == prod_origin
+
+    # Jobs preflight and GET
+    job_opt = client.options(
+        "/api/v1/jobs",
+        headers={
+            "Origin": prod_origin,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert job_opt.status_code == 200
+    assert job_opt.headers.get("access-control-allow-origin") == prod_origin
+
+    job_get = client.get("/api/v1/jobs", headers={"Origin": prod_origin})
+    assert job_get.status_code == 200
+    assert job_get.headers.get("access-control-allow-origin") == prod_origin
+
+
+def test_cors_headers_preserved_on_error_response(client: TestClient) -> None:
+    """Test that CORS headers are present even on 4xx/5xx responses."""
+    prod_origin = "https://apply-graph.vercel.app"
+    response = client.get(
+        "/api/v1/nonexistent-endpoint-test",
+        headers={"Origin": prod_origin},
+    )
+    assert response.status_code == 404
+    assert response.headers.get("access-control-allow-origin") == prod_origin
+
+
+def test_cors_disallowed_origin_rejected(client: TestClient) -> None:
+    """Test that unauthorized origins do not receive allow-origin headers."""
+    response = client.options(
+        "/api/v1/health",
+        headers={
+            "Origin": "https://malicious-site.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 400
+    assert response.headers.get("access-control-allow-origin") is None
 
 
 def test_settings_cors_parsing() -> None:
     """Test Settings CORS origins parsing for JSON strings, CSV strings, and lists."""
-    s1 = Settings(BACKEND_CORS_ORIGINS='["http://localhost:3000", "http://localhost:5173"]')
-    assert s1.BACKEND_CORS_ORIGINS == ["http://localhost:3000", "http://localhost:5173"]
+    s1 = Settings(BACKEND_CORS_ORIGINS='["https://apply-graph.vercel.app"]')
+    assert "https://apply-graph.vercel.app" in s1.BACKEND_CORS_ORIGINS
+    assert "http://localhost:5173" in s1.BACKEND_CORS_ORIGINS
 
-    s2 = Settings(BACKEND_CORS_ORIGINS="http://localhost:3000, http://localhost:5173")
-    assert s2.BACKEND_CORS_ORIGINS == ["http://localhost:3000", "http://localhost:5173"]
+    s2 = Settings(BACKEND_CORS_ORIGINS="http://localhost:3000, https://apply-graph.vercel.app/")
+    assert "https://apply-graph.vercel.app" in s2.BACKEND_CORS_ORIGINS
+    assert "http://localhost:3000" in s2.BACKEND_CORS_ORIGINS
+    assert "http://localhost:5173" in s2.BACKEND_CORS_ORIGINS
 
 
 def test_get_db_dependency() -> None:
